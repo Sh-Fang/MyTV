@@ -230,16 +230,12 @@
             flex-direction: column;
         }
 
-        .player-header {
-            background: rgba(0, 0, 0, 0.8);
-            padding: 15px 20px;
-            display: flex;
-            align-items: center;
-            gap: 20px;
-        }
-
-        .back-btn {
-            background: #667eea;
+        /* 浮动返回按钮 */
+        .back-btn-floating {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: rgba(102, 126, 234, 0.8);
             color: white;
             border: none;
             padding: 10px 20px;
@@ -247,18 +243,13 @@
             font-size: 16px;
             cursor: pointer;
             transition: all 0.3s;
+            z-index: 100;
+            backdrop-filter: blur(10px);
         }
 
-        .back-btn:hover {
-            background: #5568d3;
+        .back-btn-floating:hover {
+            background: rgba(85, 104, 211, 0.95);
             transform: scale(1.05);
-        }
-
-        .player-title {
-            font-size: 18px;
-            color: white;
-            font-weight: bold;
-            flex: 1;
         }
 
         .video-wrapper {
@@ -267,6 +258,53 @@
             justify-content: center;
             align-items: center;
             background: #000;
+            position: relative;
+        }
+
+        /* 全屏时的样式 */
+        .video-wrapper:fullscreen {
+            width: 100vw;
+            height: 100vh;
+        }
+
+        .video-wrapper:-webkit-full-screen {
+            width: 100vw;
+            height: 100vh;
+        }
+
+        .video-wrapper:-moz-full-screen {
+            width: 100vw;
+            height: 100vh;
+        }
+
+        .video-wrapper:-ms-fullscreen {
+            width: 100vw;
+            height: 100vh;
+        }
+
+        /* 右下角竖排水印标题 */
+        .video-watermark {
+            position: absolute;
+            bottom: 30px;
+            right: 20px;
+            writing-mode: vertical-lr;  /* 从左到右 */
+            text-orientation: upright;
+            font-size: 15px;
+            color: rgba(255, 255, 255, 0.75);  /* 透明度75% */
+            font-weight: 600;  /* 加粗字体 */
+            letter-spacing: 3px;
+            text-shadow: 
+                0 0 8px rgba(0, 0, 0, 0.9),      /* 外发光 */
+                1px 1px 4px rgba(0, 0, 0, 0.9),   /* 右下阴影 */
+                -1px -1px 4px rgba(0, 0, 0, 0.9), /* 左上阴影 */
+                2px 2px 6px rgba(0, 0, 0, 0.7);   /* 深层阴影 */
+            pointer-events: none;
+            user-select: none;
+            z-index: 10;
+            max-height: 350px;
+            max-width: 120px;  /* 限制最大宽度，超长时换列 */
+            overflow: hidden;
+            line-height: 1.6;
         }
 
         #videoPlayer {
@@ -275,15 +313,6 @@
             object-fit: contain;
         }
 
-        .player-controls {
-            background: rgba(0, 0, 0, 0.8);
-            padding: 15px 20px;
-        }
-
-        .player-info {
-            color: #aaa;
-            font-size: 14px;
-        }
     </style>
 </head>
 <body>
@@ -304,21 +333,16 @@
     <!-- 视频播放器页面 -->
     <div id="playerView" style="display: none;">
         <div class="player-container">
-            <div class="player-header">
-                <button class="back-btn" onclick="backToList()">← 返回列表</button>
-                <div class="player-title" id="playerTitle"></div>
-            </div>
+            <!-- 浮动返回按钮 -->
+            <button class="back-btn-floating" onclick="backToList()">← 返回</button>
             
             <div class="video-wrapper">
                 <video id="videoPlayer" controls autoplay>
                     您的浏览器不支持视频播放
                 </video>
-            </div>
-
-            <div class="player-controls">
-                <div class="player-info">
-                    <span id="playerInfo">准备播放...</span>
-                </div>
+                
+                <!-- 右下角竖排水印标题 -->
+                <div class="video-watermark" id="videoWatermark"></div>
             </div>
         </div>
     </div>
@@ -509,9 +533,9 @@
             document.getElementById('listView').style.display = 'none';
             document.getElementById('playerView').style.display = 'block';
 
-            // 设置视频信息
+            // 设置视频信息 - 显示在右下角水印
             const fileName = videoPath.split('\\').pop();
-            document.getElementById('playerTitle').textContent = fileName;
+            document.getElementById('videoWatermark').textContent = fileName;
             
             const video = document.getElementById('videoPlayer');
             
@@ -524,19 +548,11 @@
             video.src = fileUrl;
             video.load();
 
-            // 显示起始时间信息
-            const playerInfo = document.getElementById('playerInfo');
-            if (startTime > 0) {
-                playerInfo.textContent = `从 ${formatTime(startTime)} 开始播放 | 总时长: ${formatTime(currentVideoDuration)}`;
-            } else {
-                playerInfo.textContent = `总时长: ${formatTime(currentVideoDuration)}`;
-            }
-
             // 添加错误处理
             video.onerror = function(e) {
                 console.error('视频加载错误:', e);
                 console.error('错误代码:', video.error);
-                playerInfo.textContent = '视频加载失败: ' + (video.error ? video.error.message : '未知错误');
+                alert('视频加载失败: ' + (video.error ? video.error.message : '未知错误'));
             };
 
             // 当视频元数据加载完成后，设置起始时间
@@ -549,7 +565,7 @@
                     console.log('视频开始播放');
                 }).catch(err => {
                     console.error('播放失败:', err);
-                    playerInfo.textContent = '播放失败: ' + err.message;
+                    alert('播放失败: ' + err.message);
                 });
             };
 
@@ -593,8 +609,10 @@
                         break;
                     case 'f':
                         e.preventDefault();
+                        // 让整个video-wrapper全屏，这样水印也会显示
+                        const wrapper = document.querySelector('.video-wrapper');
                         if (!document.fullscreenElement) {
-                            video.requestFullscreen();
+                            wrapper.requestFullscreen();
                         } else {
                             document.exitFullscreen();
                         }
