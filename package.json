@@ -1,0 +1,19 @@
+{
+  "name": "mytv-electron-app",
+  "version": "1.0.0",
+  "description": "A simple Electron Hello World application",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "keywords": [
+    "electron",
+    "hello-world"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^28.0.0"
+  }
+}
+
