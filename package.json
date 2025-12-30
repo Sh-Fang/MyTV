@@ -1,14 +1,14 @@
 {
   "name": "mytv-electron-app",
   "version": "1.0.0",
-  "description": "A simple Electron Hello World application",
+  "description": "A video player application with time-based playback",
   "main": "main.js",
   "scripts": {
     "start": "electron ."
   },
   "keywords": [
     "electron",
-    "hello-world"
+    "video-player"
   ],
   "author": "",
   "license": "MIT",
