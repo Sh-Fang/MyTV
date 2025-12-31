@@ -313,6 +313,111 @@
             object-fit: contain;
         }
 
+        /* 频道模式样式 */
+        #channelView {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #000;
+            z-index: 2000;
+        }
+
+        .channel-container {
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        .channel-video-wrapper {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #000;
+            position: relative;
+        }
+
+        #channelVideo {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .channel-number {
+            position: absolute;
+            top: 30px;
+            left: 30px;
+            font-size: 48px;
+            color: #00ff00;
+            font-weight: bold;
+            text-shadow: 
+                0 0 10px rgba(0, 255, 0, 0.8),
+                2px 2px 6px rgba(0, 0, 0, 0.9),
+                -1px -1px 4px rgba(0, 0, 0, 0.9);
+            pointer-events: none;
+            user-select: none;
+            z-index: 10;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .channel-number.show {
+            opacity: 1;
+        }
+
+        .channel-watermark {
+            position: absolute;
+            bottom: 30px;
+            right: 20px;
+            writing-mode: vertical-lr;
+            text-orientation: upright;
+            font-size: 15px;
+            color: rgba(255, 255, 255, 0.75);
+            font-weight: 600;
+            letter-spacing: 3px;
+            text-shadow: 
+                0 0 8px rgba(0, 0, 0, 0.9),
+                1px 1px 4px rgba(0, 0, 0, 0.9),
+                -1px -1px 4px rgba(0, 0, 0, 0.9),
+                2px 2px 6px rgba(0, 0, 0, 0.7);
+            pointer-events: none;
+            user-select: none;
+            z-index: 10;
+            max-height: 350px;
+            max-width: 120px;
+            overflow: hidden;
+            line-height: 1.6;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .channel-watermark.show {
+            opacity: 1;
+        }
+
+        .channel-hint {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            color: #aaa;
+            opacity: 0;
+            animation: fadeInOut 3s ease-in-out;
+        }
+
+        @keyframes fadeInOut {
+            0%, 100% { opacity: 0; }
+            10%, 90% { opacity: 1; }
+        }
+
     </style>
 </head>
 <body>
@@ -325,6 +430,7 @@
 
         <div class="controls">
             <button class="scan-btn" onclick="scanVideos()">🔍 扫描视频文件</button>
+            <button class="scan-btn" onclick="enterChannelMode()" style="margin-left: 15px; background: #764ba2;">📺 进入频道模式</button>
         </div>
 
         <div id="videoList" class="video-list"></div>
@@ -343,6 +449,22 @@
                 
                 <!-- 右下角竖排水印标题 -->
                 <div class="video-watermark" id="videoWatermark"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 频道模式页面 -->
+    <div id="channelView" style="display: none;">
+        <div class="channel-container">
+            <div class="channel-video-wrapper">
+                <video id="channelVideo" autoplay loop muted>
+                    您的浏览器不支持视频播放
+                </video>
+                
+                <div class="channel-number" id="channelNumber">1</div>
+                <div class="channel-watermark" id="channelWatermark"></div>
+                
+                <div class="channel-hint" id="channelHint">按 ↑↓ 键切换频道</div>
             </div>
         </div>
     </div>
@@ -370,6 +492,9 @@
         let currentVideoPath = '';
         let currentVideoDuration = 0;
         let videoFiles = [];
+        let currentChannelIndex = 0;
+        let channelKeyHandler = null;
+        let channelInfoTimer = null;
 
         // 扫描视频文件
         async function scanVideos() {
@@ -654,6 +779,157 @@
         window.addEventListener('DOMContentLoaded', () => {
             scanVideos();
         });
+
+        // 进入频道模式
+        function enterChannelMode() {
+            if (videoFiles.length === 0) {
+                alert('请先扫描视频文件');
+                return;
+            }
+
+            currentChannelIndex = 0;
+            document.getElementById('listView').style.display = 'none';
+            document.getElementById('channelView').style.display = 'block';
+            
+            playChannel(currentChannelIndex);
+            setupChannelKeyboard();
+            
+            const hint = document.getElementById('channelHint');
+            hint.style.animation = 'none';
+            setTimeout(() => {
+                hint.style.animation = 'fadeInOut 3s ease-in-out';
+            }, 10);
+        }
+
+        // 退出频道模式
+        function exitChannelMode() {
+            const video = document.getElementById('channelVideo');
+            video.pause();
+            video.removeAttribute('src');
+            video.load();
+            
+            if (channelKeyHandler) {
+                document.removeEventListener('keydown', channelKeyHandler);
+                channelKeyHandler = null;
+            }
+            
+            if (channelInfoTimer) {
+                clearTimeout(channelInfoTimer);
+                channelInfoTimer = null;
+            }
+            
+            document.getElementById('channelView').style.display = 'none';
+            document.getElementById('listView').style.display = 'block';
+        }
+
+        // 播放指定频道
+        function playChannel(index) {
+            if (index < 0 || index >= videoFiles.length) {
+                return;
+            }
+
+            currentChannelIndex = index;
+            const video = document.getElementById('channelVideo');
+            const videoFile = videoFiles[index];
+            
+            const fileUrl = pathToFileURL(videoFile.path);
+            video.src = fileUrl;
+            video.load();
+            video.play().catch(err => {
+                console.error('播放失败:', err);
+            });
+            
+            document.getElementById('channelNumber').textContent = `${index + 1}`;
+            document.getElementById('channelWatermark').textContent = videoFile.name;
+            
+            showChannelInfo();
+        }
+
+        // 显示频道信息（5秒后自动隐藏）
+        function showChannelInfo() {
+            const channelNumber = document.getElementById('channelNumber');
+            const channelWatermark = document.getElementById('channelWatermark');
+            
+            if (channelInfoTimer) {
+                clearTimeout(channelInfoTimer);
+            }
+            
+            channelNumber.classList.add('show');
+            channelWatermark.classList.add('show');
+            
+            channelInfoTimer = setTimeout(() => {
+                channelNumber.classList.remove('show');
+                channelWatermark.classList.remove('show');
+            }, 5000);
+        }
+
+        // 切换频道
+        function switchChannel(direction) {
+            let newIndex = currentChannelIndex + direction;
+            
+            if (newIndex < 0) {
+                newIndex = videoFiles.length - 1;
+            } else if (newIndex >= videoFiles.length) {
+                newIndex = 0;
+            }
+            
+            playChannel(newIndex);
+        }
+
+        // 设置频道模式键盘控制
+        function setupChannelKeyboard() {
+            if (channelKeyHandler) {
+                document.removeEventListener('keydown', channelKeyHandler);
+            }
+            
+            channelKeyHandler = (e) => {
+                if (document.getElementById('channelView').style.display !== 'block') {
+                    return;
+                }
+                
+                const video = document.getElementById('channelVideo');
+                
+                switch(e.key) {
+                    case 'ArrowUp':
+                        e.preventDefault();
+                        switchChannel(-1);
+                        break;
+                    case 'ArrowDown':
+                        e.preventDefault();
+                        switchChannel(1);
+                        break;
+                    case ' ':
+                    case 'k':
+                        e.preventDefault();
+                        if (video.paused) {
+                            video.play();
+                        } else {
+                            video.pause();
+                        }
+                        break;
+                    case 'm':
+                        e.preventDefault();
+                        video.muted = !video.muted;
+                        break;
+                    case 'f':
+                        e.preventDefault();
+                        const wrapper = document.querySelector('.channel-video-wrapper');
+                        if (!document.fullscreenElement) {
+                            wrapper.requestFullscreen();
+                        } else {
+                            document.exitFullscreen();
+                        }
+                        break;
+                    case 'Escape':
+                        if (!document.fullscreenElement) {
+                            exitChannelMode();
+                        }
+                        break;
+                }
+            };
+            
+            document.addEventListener('keydown', channelKeyHandler);
+        }
 
         // 键盘事件处理
         document.addEventListener('keydown', (e) => {
