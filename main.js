@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
 let mainWindow;
 
@@ -21,6 +22,22 @@ function createWindow() {
 
   // 打开开发者工具（开发时使用）
   mainWindow.webContents.openDevTools();
+}
+
+// 获取用户主目录的 Videos 文件夹路径
+function getVideosPath() {
+  const homeDir = os.homedir();
+  let videosPath;
+  
+  if (process.platform === 'win32') {
+    videosPath = path.join(homeDir, 'Videos');
+  } else if (process.platform === 'darwin') {
+    videosPath = path.join(homeDir, 'Movies');
+  } else {
+    videosPath = path.join(homeDir, 'Videos');
+  }
+  
+  return videosPath;
 }
 
 // 扫描视频文件
@@ -60,6 +77,10 @@ function scanVideoFiles(dirPath) {
 }
 
 // IPC 处理程序
+ipcMain.handle('get-videos-path', async () => {
+  return getVideosPath();
+});
+
 ipcMain.handle('scan-videos', async (event, dirPath) => {
   return scanVideoFiles(dirPath);
 });

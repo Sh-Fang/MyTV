@@ -425,7 +425,7 @@
     <div id="listView">
         <div class="header">
             <h1>🎬 MyTV 视频播放器</h1>
-            <p>扫描并播放 D:\Videos 目录下的视频文件</p>
+            <p>扫描并播放用户主目录下的视频文件</p>
         </div>
 
         <div class="controls">
@@ -503,11 +503,13 @@
 
             try {
                 console.log('开始扫描视频...');
-                videoFiles = await window.videoAPI.scanVideos('D:\\Videos');
+                const videosPath = await window.videoAPI.getVideosPath();
+                console.log('视频目录路径:', videosPath);
+                videoFiles = await window.videoAPI.scanVideos(videosPath);
                 console.log('扫描结果:', videoFiles);
                 
                 if (videoFiles.length === 0) {
-                    videoList.innerHTML = '<div class="empty">未找到视频文件<br>请确保 D:\\Videos 目录存在且包含视频文件</div>';
+                    videoList.innerHTML = `<div class="empty">未找到视频文件<br>请确保 ${videosPath} 目录存在且包含视频文件</div>`;
                     return;
                 }
 
