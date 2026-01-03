@@ -1,5 +1,6 @@
 // preload.js - 在渲染进程加载之前运行
 // 用于安全地暴露 Node.js API 给渲染进程
+// 注意：preload 脚本必须使用 CommonJS，即使主进程使用 ESM
 
 const { contextBridge, ipcRenderer } = require('electron');
 
@@ -12,6 +13,14 @@ contextBridge.exposeInMainWorld('videoAPI', {
   // 获取用户主目录的 Videos 文件夹路径
   getVideosPath: () => ipcRenderer.invoke('get-videos-path'),
   // 扫描指定目录的视频文件
-  scanVideos: (dirPath) => ipcRenderer.invoke('scan-videos', dirPath)
+  scanVideos: (dirPath) => ipcRenderer.invoke('scan-videos', dirPath),
+  
+  // 新增：频道相关 API
+  // 扫描频道（扫描子文件夹）
+  scanChannels: (rootPath) => ipcRenderer.invoke('scan-channels', rootPath),
+  // 保存频道数据到数据库
+  saveChannelData: (channelData) => ipcRenderer.invoke('save-channel-data', channelData),
+  // 从数据库获取所有频道
+  getChannels: () => ipcRenderer.invoke('get-channels')
 });
 

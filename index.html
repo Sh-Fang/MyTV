@@ -418,6 +418,31 @@
             10%, 90% { opacity: 1; }
         }
 
+        /* 进度条样式 */
+        progress {
+            width: 100%;
+            max-width: 400px;
+            height: 20px;
+            margin: 15px 0;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        progress::-webkit-progress-bar {
+            background-color: #16213e;
+            border-radius: 10px;
+        }
+
+        progress::-webkit-progress-value {
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            border-radius: 10px;
+        }
+
+        progress::-moz-progress-bar {
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            border-radius: 10px;
+        }
+
     </style>
 </head>
 <body>
@@ -425,11 +450,12 @@
     <div id="listView">
         <div class="header">
             <h1>🎬 MyTV 视频播放器</h1>
-            <p>选择目录并播放视频文件</p>
+            <p>模拟直播电视体验</p>
         </div>
 
         <div class="controls">
-            <button class="scan-btn" onclick="selectAndScanVideos()">📁 选择视频目录</button>
+            <button class="scan-btn" onclick="selectDirectory()">📁 选择视频目录</button>
+            <button class="scan-btn" onclick="scanAndAnalyzeVideos()" style="margin-left: 15px; background: #4CAF50;">🔍 扫描并统计视频</button>
             <button class="scan-btn" onclick="enterChannelMode()" style="margin-left: 15px; background: #764ba2;">📺 进入频道模式</button>
         </div>
 
@@ -457,7 +483,7 @@
     <div id="channelView" style="display: none;">
         <div class="channel-container">
             <div class="channel-video-wrapper">
-                <video id="channelVideo" autoplay loop muted>
+                <video id="channelVideo" autoplay>
                     您的浏览器不支持视频播放
                 </video>
                 
@@ -496,11 +522,11 @@
         let channelKeyHandler = null;
         let channelInfoTimer = null;
         let currentVideoDirectory = '';
+        let channelData = [];
+        let currentVideoIndexInChannel = 0;
 
-        // 选择目录并扫描视频
-        async function selectAndScanVideos() {
-            const videoList = document.getElementById('videoList');
-            
+        // 选择目录
+        async function selectDirectory() {
             try {
                 const selectedPath = await window.videoAPI.selectDirectory();
                 
@@ -509,32 +535,92 @@
                 }
                 
                 currentVideoDirectory = selectedPath;
-                await scanVideos(selectedPath);
+                
+                const videoList = document.getElementById('videoList');
+                videoList.innerHTML = `
+                    <div class="empty" style="color: #4CAF50;">
+                        ✓ 已选择目录<br><br>
+                        ${selectedPath}<br><br>
+                        点击"扫描并统计视频"开始扫描
+                    </div>
+                `;
             } catch (error) {
                 console.error('选择目录错误:', error);
-                videoList.innerHTML = `<div class="empty">选择目录失败: ${error.message}</div>`;
+                alert('选择目录失败: ' + error.message);
             }
         }
 
-        // 扫描视频文件
-        async function scanVideos(dirPath) {
+        // 扫描并统计视频
+        async function scanAndAnalyzeVideos() {
+            if (!currentVideoDirectory) {
+                alert('请先选择视频目录');
+                return;
+            }
+            
             const videoList = document.getElementById('videoList');
-            videoList.innerHTML = '<div class="loading">正在扫描视频文件...</div>';
-
+            videoList.innerHTML = '<div class="loading">正在扫描频道...</div>';
+            
             try {
-                console.log('开始扫描视频...', dirPath);
-                videoFiles = await window.videoAPI.scanVideos(dirPath);
-                console.log('扫描结果:', videoFiles);
+                // 1. 扫描频道结构（子文件夹）
+                const channels = await window.videoAPI.scanChannels(currentVideoDirectory);
                 
-                if (videoFiles.length === 0) {
-                    videoList.innerHTML = `<div class="empty">未找到视频文件<br>目录: ${dirPath}</div>`;
+                if (channels.length === 0) {
+                    videoList.innerHTML = `
+                        <div class="empty">
+                            未找到包含视频的子文件夹<br><br>
+                            请确保目录下有子文件夹，且子文件夹中包含视频文件
+                        </div>
+                    `;
                     return;
                 }
-
-                displayVideos(videoFiles);
+                
+                console.log(`扫描到 ${channels.length} 个频道`);
+                
+                // 2. 计算总视频数
+                let totalVideos = channels.reduce((sum, ch) => sum + ch.videos.length, 0);
+                let processedVideos = 0;
+                
+                // 3. 逐个获取视频时长
+                for (const channel of channels) {
+                    console.log(`处理频道: ${channel.name}，包含 ${channel.videos.length} 个视频`);
+                    
+                    for (const video of channel.videos) {
+                        videoList.innerHTML = `
+                            <div class="loading">
+                                正在分析视频时长...<br><br>
+                                <progress value="${processedVideos}" max="${totalVideos}"></progress><br>
+                                ${Math.floor(processedVideos / totalVideos * 100)}% (${processedVideos}/${totalVideos})<br><br>
+                                <small style="color: #aaa;">频道: ${channel.name}</small><br>
+                                <small style="color: #aaa;">${video.name}</small>
+                            </div>
+                        `;
+                        
+                        // 获取时长
+                        video.duration = await getVideoDuration(video.path);
+                        console.log(`${video.name}: ${video.duration}秒`);
+                        processedVideos++;
+                    }
+                    
+                    // 4. 保存频道到数据库
+                    console.log(`保存频道 ${channel.name} 到数据库`);
+                    await window.videoAPI.saveChannelData(channel);
+                }
+                
+                // 5. 显示完成信息
+                videoList.innerHTML = `
+                    <div class="empty" style="color: #4CAF50;">
+                        ✓ 扫描完成！<br><br>
+                        频道数: ${channels.length}<br>
+                        视频总数: ${totalVideos}<br><br>
+                        点击"进入频道模式"开始观看
+                    </div>
+                `;
+                
+                console.log('扫描完成');
+                
             } catch (error) {
                 console.error('扫描错误:', error);
-                videoList.innerHTML = `<div class="empty">扫描失败: ${error.message}<br><br>错误详情: ${error.stack || error.toString()}</div>`;
+                videoList.innerHTML = `<div class="empty">扫描失败: ${error.message}</div>`;
             }
         }
 
@@ -795,7 +881,7 @@
             }, 100);
         }
 
-        // 页面加载完成后自动扫描
+        // 页面加载完成后的初始化
         window.addEventListener('DOMContentLoaded', async () => {
             const videoList = document.getElementById('videoList');
             videoList.innerHTML = '<div class="loading">正在加载...</div>';
@@ -805,7 +891,30 @@
                 
                 if (savedPath) {
                     currentVideoDirectory = savedPath;
-                    await scanVideos(savedPath);
+                    
+                    // 检查是否有已扫描的频道数据
+                    const channels = await window.videoAPI.getChannels();
+                    
+                    if (channels.length > 0) {
+                        const totalVideos = channels.reduce((sum, ch) => sum + ch.video_count, 0);
+                        videoList.innerHTML = `
+                            <div class="empty" style="color: #4CAF50;">
+                                已加载频道数据<br><br>
+                                目录: ${savedPath}<br>
+                                频道数: ${channels.length}<br>
+                                视频总数: ${totalVideos}<br><br>
+                                点击"进入频道模式"开始观看<br>
+                                或点击"扫描并统计视频"重新扫描
+                            </div>
+                        `;
+                    } else {
+                        videoList.innerHTML = `
+                            <div class="empty">
+                                已选择目录: ${savedPath}<br><br>
+                                点击"扫描并统计视频"开始扫描
+                            </div>
+                        `;
+                    }
                 } else {
                     videoList.innerHTML = '<div class="empty">请点击"选择视频目录"按钮选择包含视频文件的文件夹</div>';
                 }
@@ -816,24 +925,38 @@
         });
 
         // 进入频道模式
-        function enterChannelMode() {
-            if (videoFiles.length === 0) {
-                alert('请先扫描视频文件');
-                return;
+        async function enterChannelMode() {
+            try {
+                // 从数据库读取频道数据
+                const channels = await window.videoAPI.getChannels();
+                
+                if (channels.length === 0) {
+                    alert('请先扫描并统计视频');
+                    return;
+                }
+                
+                console.log(`加载了 ${channels.length} 个频道`);
+                channelData = channels;
+                currentChannelIndex = 0;
+                
+                // 显示频道界面
+                document.getElementById('listView').style.display = 'none';
+                document.getElementById('channelView').style.display = 'block';
+                
+                // 播放第一个频道（根据当前时间计算位置）
+                playChannelAtCurrentTime(0);
+                setupChannelKeyboard();
+                
+                const hint = document.getElementById('channelHint');
+                hint.style.animation = 'none';
+                setTimeout(() => {
+                    hint.style.animation = 'fadeInOut 3s ease-in-out';
+                }, 10);
+                
+            } catch (error) {
+                console.error('进入频道模式失败:', error);
+                alert('进入频道模式失败: ' + error.message);
             }
-
-            currentChannelIndex = 0;
-            document.getElementById('listView').style.display = 'none';
-            document.getElementById('channelView').style.display = 'block';
-            
-            playChannel(currentChannelIndex);
-            setupChannelKeyboard();
-            
-            const hint = document.getElementById('channelHint');
-            hint.style.animation = 'none';
-            setTimeout(() => {
-                hint.style.animation = 'fadeInOut 3s ease-in-out';
-            }, 10);
         }
 
         // 退出频道模式
@@ -857,27 +980,113 @@
             document.getElementById('listView').style.display = 'block';
         }
 
-        // 播放指定频道
-        function playChannel(index) {
-            if (index < 0 || index >= videoFiles.length) {
+        // 获取今天的起始时间（00:00:00）
+        function getTodayStartTime() {
+            const now = new Date();
+            return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).getTime();
+        }
+
+        // 计算当前时刻频道应该播放的位置
+        function calculatePlayPosition(channel) {
+            const startTime = getTodayStartTime();
+            const now = Date.now();
+            const elapsedSeconds = Math.floor((now - startTime) / 1000);
+            
+            // 在循环播放列表中的位置
+            const positionInLoop = elapsedSeconds % channel.total_duration;
+            
+            console.log(`频道 ${channel.name}:`);
+            console.log(`- 总时长: ${channel.total_duration}秒`);
+            console.log(`- 今日已播放: ${elapsedSeconds}秒`);
+            console.log(`- 当前位置: ${positionInLoop}秒`);
+            
+            // 找到具体是哪个视频、哪个时间点
+            let accumulated = 0;
+            for (let i = 0; i < channel.videos.length; i++) {
+                const video = channel.videos[i];
+                
+                if (accumulated + video.duration > positionInLoop) {
+                    const startTime = positionInLoop - accumulated;
+                    console.log(`- 应播放: ${video.name} (第${i+1}个视频)`);
+                    console.log(`- 起始位置: ${startTime}秒`);
+                    
+                    return {
+                        videoIndex: i,
+                        video: video,
+                        startTime: startTime
+                    };
+                }
+                
+                accumulated += video.duration;
+            }
+            
+            // 兜底：播放第一个视频
+            return {
+                videoIndex: 0,
+                video: channel.videos[0],
+                startTime: 0
+            };
+        }
+
+        // 根据当前时间播放频道
+        function playChannelAtCurrentTime(channelIndex) {
+            if (channelIndex < 0 || channelIndex >= channelData.length) {
                 return;
             }
 
-            currentChannelIndex = index;
-            const video = document.getElementById('channelVideo');
-            const videoFile = videoFiles[index];
+            currentChannelIndex = channelIndex;
+            const channel = channelData[channelIndex];
             
-            const fileUrl = pathToFileURL(videoFile.path);
+            // 计算当前应该播放的位置
+            const playInfo = calculatePlayPosition(channel);
+            currentVideoIndexInChannel = playInfo.videoIndex;
+            
+            // 更新 UI
+            document.getElementById('channelNumber').textContent = `${channelIndex + 1}`;
+            document.getElementById('channelWatermark').textContent = playInfo.video.name;
+            
+            // 播放视频
+            const video = document.getElementById('channelVideo');
+            const fileUrl = pathToFileURL(playInfo.video.path);
+            
+            video.src = fileUrl;
+            video.load();
+            
+            // 当视频加载完元数据后，设置起始时间
+            video.onloadedmetadata = () => {
+                video.currentTime = playInfo.startTime;
+                video.play().catch(err => {
+                    console.error('播放失败:', err);
+                });
+            };
+            
+            // 视频结束后播放频道内的下一个视频
+            video.onended = () => {
+                playNextVideoInChannel();
+            };
+            
+            showChannelInfo();
+        }
+
+        // 播放频道内的下一个视频
+        function playNextVideoInChannel() {
+            const channel = channelData[currentChannelIndex];
+            currentVideoIndexInChannel = (currentVideoIndexInChannel + 1) % channel.videos.length;
+            
+            const nextVideo = channel.videos[currentVideoIndexInChannel];
+            const video = document.getElementById('channelVideo');
+            
+            console.log(`播放下一个视频: ${nextVideo.name}`);
+            
+            document.getElementById('channelWatermark').textContent = nextVideo.name;
+            showChannelInfo();
+            
+            const fileUrl = pathToFileURL(nextVideo.path);
             video.src = fileUrl;
             video.load();
             video.play().catch(err => {
                 console.error('播放失败:', err);
             });
-            
-            document.getElementById('channelNumber').textContent = `${index + 1}`;
-            document.getElementById('channelWatermark').textContent = videoFile.name;
-            
-            showChannelInfo();
         }
 
         // 显示频道信息（5秒后自动隐藏）
@@ -903,12 +1112,13 @@
             let newIndex = currentChannelIndex + direction;
             
             if (newIndex < 0) {
-                newIndex = videoFiles.length - 1;
-            } else if (newIndex >= videoFiles.length) {
+                newIndex = channelData.length - 1;
+            } else if (newIndex >= channelData.length) {
                 newIndex = 0;
             }
             
-            playChannel(newIndex);
+            console.log(`切换频道: ${currentChannelIndex + 1} -> ${newIndex + 1}`);
+            playChannelAtCurrentTime(newIndex);
         }
 
         // 设置频道模式键盘控制
@@ -922,8 +1132,6 @@
                     return;
                 }
                 
-                const video = document.getElementById('channelVideo');
-                
                 switch(e.key) {
                     case 'ArrowUp':
                         e.preventDefault();
@@ -933,32 +1141,9 @@
                         e.preventDefault();
                         switchChannel(1);
                         break;
-                    case ' ':
-                    case 'k':
-                        e.preventDefault();
-                        if (video.paused) {
-                            video.play();
-                        } else {
-                            video.pause();
-                        }
-                        break;
-                    case 'm':
-                        e.preventDefault();
-                        video.muted = !video.muted;
-                        break;
-                    case 'f':
-                        e.preventDefault();
-                        const wrapper = document.querySelector('.channel-video-wrapper');
-                        if (!document.fullscreenElement) {
-                            wrapper.requestFullscreen();
-                        } else {
-                            document.exitFullscreen();
-                        }
-                        break;
                     case 'Escape':
-                        if (!document.fullscreenElement) {
-                            exitChannelMode();
-                        }
+                        e.preventDefault();
+                        exitChannelMode();
                         break;
                 }
             };

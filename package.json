@@ -1,6 +1,7 @@
 {
   "name": "mytv-electron-app",
   "version": "1.0.0",
+  "type": "module",
   "description": "A video player application with time-based playback",
   "main": "main.js",
   "scripts": {
@@ -14,6 +15,8 @@
   "license": "MIT",
   "devDependencies": {
     "electron": "^28.0.0"
+  },
+  "dependencies": {
+    "electron-store": "^11.0.2"
   }
 }
-

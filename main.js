@@ -1,35 +1,34 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
-const path = require('path');
-const fs = require('fs');
-const os = require('os');
+import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import path from 'path';
+import fs from 'fs';
+import os from 'os';
+import Store from 'electron-store';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 let mainWindow;
-const configPath = path.join(app.getPath('userData'), 'config.json');
+const store = new Store();
 
-// 读取配置
-function loadConfig() {
-  try {
-    if (fs.existsSync(configPath)) {
-      const data = fs.readFileSync(configPath, 'utf8');
-      return JSON.parse(data);
-    }
-  } catch (error) {
-    console.error('读取配置失败:', error);
-  }
-  return {};
+// 获取所有频道数据
+function getChannelsData() {
+  return store.get('channels', []);
+}
+
+// 保存所有频道数据
+function saveChannelsData(channels) {
+  store.set('channels', channels);
+}
+
+// 获取配置
+function getConfig(key, defaultValue = null) {
+  return store.get(`config.${key}`, defaultValue);
 }
 
 // 保存配置
-function saveConfig(config) {
-  try {
-    const dir = path.dirname(configPath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
-  } catch (error) {
-    console.error('保存配置失败:', error);
-  }
+function setConfig(key, value) {
+  store.set(`config.${key}`, value);
 }
 
 function createWindow() {
@@ -103,6 +102,42 @@ function scanVideoFiles(dirPath) {
   }
 }
 
+// 扫描频道（扫描子文件夹）
+function scanChannels(rootPath) {
+  const channels = [];
+  
+  try {
+    if (!fs.existsSync(rootPath)) {
+      return [];
+    }
+    
+    const items = fs.readdirSync(rootPath);
+    
+    for (const item of items) {
+      const itemPath = path.join(rootPath, item);
+      const stat = fs.statSync(itemPath);
+      
+      if (stat.isDirectory()) {
+        const videos = scanVideoFiles(itemPath);
+        
+        if (videos.length > 0) {
+          channels.push({
+            name: item,
+            path: itemPath,
+            videos: videos
+          });
+        }
+      }
+    }
+    
+    console.log(`扫描到 ${channels.length} 个频道`);
+    return channels;
+  } catch (error) {
+    console.error('扫描频道错误:', error);
+    return [];
+  }
+}
+
 // IPC 处理程序
 ipcMain.handle('select-directory', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
@@ -115,17 +150,13 @@ ipcMain.handle('select-directory', async () => {
   }
   
   const selectedPath = result.filePaths[0];
-  
-  const config = loadConfig();
-  config.videoDirectory = selectedPath;
-  saveConfig(config);
+  setConfig('videoDirectory', selectedPath);
   
   return selectedPath;
 });
 
 ipcMain.handle('get-saved-directory', async () => {
-  const config = loadConfig();
-  return config.videoDirectory || null;
+  return getConfig('videoDirectory');
 });
 
 ipcMain.handle('get-videos-path', async () => {
@@ -136,6 +167,67 @@ ipcMain.handle('scan-videos', async (event, dirPath) => {
   return scanVideoFiles(dirPath);
 });
 
+// 扫描频道（返回频道结构，不包含时长）
+ipcMain.handle('scan-channels', async (event, rootPath) => {
+  return scanChannels(rootPath);
+});
+
+// 保存频道数据
+ipcMain.handle('save-channel-data', async (event, channelData) => {
+  try {
+    const channels = getChannelsData();
+    
+    // 查找是否已存在该频道（按 path 匹配）
+    const existingIndex = channels.findIndex(c => c.path === channelData.path);
+    
+    // 计算总时长
+    const totalDuration = channelData.videos.reduce((sum, v) => sum + (v.duration || 0), 0);
+    
+    // 构造频道对象
+    const channel = {
+      id: existingIndex >= 0 ? channels[existingIndex].id : Date.now(),
+      name: channelData.name,
+      path: channelData.path,
+      video_count: channelData.videos.length,
+      total_duration: totalDuration,
+      last_scan_time: new Date().toISOString(),
+      videos: channelData.videos.map((video, index) => ({
+        name: video.name,
+        path: video.path,
+        duration: video.duration || 0,
+        file_size: video.size,
+        position_in_channel: index
+      }))
+    };
+    
+    // 更新或添加频道
+    if (existingIndex >= 0) {
+      channels[existingIndex] = channel;
+    } else {
+      channels.push(channel);
+    }
+    
+    saveChannelsData(channels);
+    console.log(`频道 ${channelData.name} 保存成功，包含 ${channelData.videos.length} 个视频`);
+    return { success: true };
+  } catch (error) {
+    console.error('保存频道数据失败:', error);
+    throw error;
+  }
+});
+
+// 读取所有频道
+ipcMain.handle('get-channels', async () => {
+  try {
+    const channels = getChannelsData();
+    console.log(`读取 ${channels.length} 个频道`);
+    return channels;
+  } catch (error) {
+    console.error('读取频道数据失败:', error);
+    return [];
+  }
+});
+
 // 不再需要这个处理程序，因为在同一窗口播放
 // ipcMain.handle('play-video', ...) 已移除
 
@@ -144,16 +236,16 @@ app.whenReady().then(() => {
   createWindow();
 
   app.on('activate', function () {
-    // 在 macOS 上，当点击 dock 图标并且没有其他窗口打开时，
-    // 通常会在应用程序中重新创建一个窗口
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+    }
   });
 });
 
 // 当所有窗口都关闭时退出应用
 app.on('window-all-closed', function () {
-  // 在 macOS 上，应用程序和菜单栏通常会保持活动状态，
-  // 直到用户使用 Cmd + Q 明确退出
-  if (process.platform !== 'darwin') app.quit();
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
 });
 
