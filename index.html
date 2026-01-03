@@ -44,16 +44,25 @@
         .search-container {
             text-align: center;
             margin-bottom: 20px;
+            position: relative;
+        }
+
+        .search-wrapper {
+            display: inline-block;
+            position: relative;
+            width: 600px;
+            max-width: 90%;
         }
 
         .search-box {
-            display: inline-flex;
+            display: flex;
             align-items: center;
             gap: 10px;
             background: #16213e;
             padding: 12px 20px;
             border-radius: 10px;
             border: 2px solid #667eea;
+            width: 100%;
         }
 
         .search-input {
@@ -62,8 +71,9 @@
             outline: none;
             color: #fff;
             font-size: 16px;
-            width: 400px;
+            flex: 1;
             padding: 5px;
+            min-width: 0;
         }
 
         .search-input::placeholder {
@@ -79,6 +89,8 @@
             font-size: 14px;
             cursor: pointer;
             transition: all 0.3s;
+            white-space: nowrap;
+            flex-shrink: 0;
         }
 
         .search-btn:hover {
@@ -94,6 +106,8 @@
             font-size: 14px;
             cursor: pointer;
             transition: all 0.3s;
+            white-space: nowrap;
+            flex-shrink: 0;
         }
 
         .clear-search-btn:hover {
@@ -105,6 +119,87 @@
             margin: 20px 0;
             color: #888;
             font-size: 14px;
+        }
+
+        .search-history-panel {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            margin-top: 5px;
+            background: #16213e;
+            border: 1px solid rgba(102, 126, 234, 0.5);
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            display: none;
+            z-index: 100;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .search-history-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            border-bottom: 1px solid rgba(42, 58, 94, 0.5);
+            background: rgba(22, 33, 62, 0.8);
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+
+        .search-history-header span {
+            font-size: 12px;
+            color: #666;
+        }
+
+        .search-history-header button {
+            background: transparent;
+            color: #666;
+            border: none;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .search-history-header button:hover {
+            color: #e74c3c;
+            background: rgba(231, 76, 60, 0.1);
+        }
+
+        .search-history-list {
+            padding: 0;
+        }
+
+        .search-history-item {
+            padding: 10px 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #aaa;
+            font-size: 14px;
+            border-bottom: 1px solid rgba(42, 58, 94, 0.3);
+        }
+
+        .search-history-item:last-child {
+            border-bottom: none;
+        }
+
+        .search-history-item:hover {
+            background: rgba(102, 126, 234, 0.15);
+            color: #eee;
+        }
+
+        .search-history-empty {
+            text-align: center;
+            color: #555;
+            padding: 20px 12px;
+            font-size: 13px;
         }
 
         .scan-btn {
@@ -526,17 +621,32 @@
         </div>
 
         <div class="search-container">
-            <div class="search-box">
-                <span>🔍</span>
-                <input 
-                    type="text" 
-                    id="searchInput" 
-                    class="search-input" 
-                    placeholder="搜索视频或频道名..." 
-                    onkeypress="handleSearchKeyPress(event)"
-                >
-                <button class="search-btn" onclick="performSearch()">搜索</button>
-                <button class="clear-search-btn" onclick="clearSearch()">清除</button>
+            <div class="search-wrapper">
+                <div class="search-box">
+                    <span>🔍</span>
+                    <input 
+                        type="text" 
+                        id="searchInput" 
+                        class="search-input" 
+                        placeholder="搜索视频或频道名..." 
+                        onkeypress="handleSearchKeyPress(event)"
+                        onfocus="handleSearchInputFocus()"
+                        onblur="handleSearchInputBlur()"
+                    >
+                    <button class="search-btn" onclick="performSearch()">搜索</button>
+                    <button class="clear-search-btn" onclick="clearSearch()">清除</button>
+                </div>
+
+                <!-- 搜索历史下拉面板 -->
+                <div id="searchHistoryPanel" class="search-history-panel">
+                    <div class="search-history-header">
+                        <span>搜索历史</span>
+                        <button onclick="deleteAllHistory()">清空</button>
+                    </div>
+                    <div id="searchHistoryList" class="search-history-list">
+                        <!-- 动态生成历史记录 -->
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -1219,6 +1329,12 @@
             }
 
             try {
+                // 保存到搜索历史
+                await window.videoAPI.addSearchHistory(keyword);
+                
+                // 隐藏搜索历史面板
+                document.getElementById('searchHistoryPanel').style.display = 'none';
+                
                 const results = await window.videoAPI.searchVideos(keyword);
                 
                 if (results.length === 0) {
@@ -1264,9 +1380,87 @@
             searchInput.value = '';
             isSearchMode = false;
             
+            // 清除搜索结果提示
             document.getElementById('searchResultsHeader').style.display = 'none';
             
-            await loadChannels();
+            // 清空视频列表（不显示搜索结果）
+            document.getElementById('videoList').innerHTML = '';
+            
+            // 隐藏搜索历史面板
+            document.getElementById('searchHistoryPanel').style.display = 'none';
+        }
+
+        // 输入框获得焦点时显示搜索历史
+        async function handleSearchInputFocus() {
+            await showSearchHistory();
+        }
+
+        // 输入框失去焦点时延迟隐藏（给点击历史记录留时间）
+        let blurTimeout;
+        function handleSearchInputBlur() {
+            blurTimeout = setTimeout(() => {
+                document.getElementById('searchHistoryPanel').style.display = 'none';
+            }, 200);
+        }
+
+        // 显示搜索历史
+        async function showSearchHistory() {
+            try {
+                const history = await window.videoAPI.getSearchHistory();
+                const panel = document.getElementById('searchHistoryPanel');
+                const list = document.getElementById('searchHistoryList');
+                
+                if (history.length === 0) {
+                    list.innerHTML = '<div class="search-history-empty">暂无搜索历史</div>';
+                } else {
+                    list.innerHTML = history.map(keyword => `
+                        <div class="search-history-item" onmousedown="searchFromHistory('${escapeHtml(keyword)}')">
+                            <span>🕒</span>
+                            <span>${escapeHtml(keyword)}</span>
+                        </div>
+                    `).join('');
+                }
+                
+                panel.style.display = 'block';
+            } catch (error) {
+                console.error('加载搜索历史失败:', error);
+            }
+        }
+
+        // 从历史记录搜索
+        function searchFromHistory(keyword) {
+            if (blurTimeout) {
+                clearTimeout(blurTimeout);
+            }
+            document.getElementById('searchInput').value = keyword;
+            document.getElementById('searchHistoryPanel').style.display = 'none';
+            performSearch();
+        }
+
+        // 清空所有历史
+        async function deleteAllHistory() {
+            if (blurTimeout) {
+                clearTimeout(blurTimeout);
+            }
+            
+            if (!confirm('确定要清空所有搜索历史吗？')) {
+                return;
+            }
+            
+            try {
+                await window.videoAPI.clearSearchHistory();
+                document.getElementById('searchHistoryPanel').style.display = 'none';
+            } catch (error) {
+                console.error('清空历史失败:', error);
+                alert('清空历史失败: ' + error.message);
+            }
+        }
+
+        // HTML 转义函数（防止 XSS）
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
 
         // 处理搜索框回车键

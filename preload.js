@@ -23,6 +23,10 @@ contextBridge.exposeInMainWorld('videoAPI', {
   // 从数据库获取所有频道
   getChannels: () => ipcRenderer.invoke('get-channels'),
   // 搜索视频
-  searchVideos: (keyword) => ipcRenderer.invoke('search-videos', keyword)
+  searchVideos: (keyword) => ipcRenderer.invoke('search-videos', keyword),
+  // 搜索历史相关
+  getSearchHistory: () => ipcRenderer.invoke('get-search-history'),
+  addSearchHistory: (keyword) => ipcRenderer.invoke('add-search-history', keyword),
+  clearSearchHistory: () => ipcRenderer.invoke('clear-search-history')
 });
 

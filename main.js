@@ -268,6 +268,31 @@ ipcMain.handle('search-videos', async (event, keyword) => {
   }
 });
 
+// 获取搜索历史
+ipcMain.handle('get-search-history', async () => {
+  return store.get('searchHistory', []);
+});
+
+// 添加搜索记录
+ipcMain.handle('add-search-history', async (event, keyword) => {
+  const history = store.get('searchHistory', []);
+  
+  const filtered = history.filter(item => item !== keyword);
+  
+  filtered.unshift(keyword);
+  
+  const limited = filtered.slice(0, 10);
+  
+  store.set('searchHistory', limited);
+  return limited;
+});
+
+// 清空搜索历史
+ipcMain.handle('clear-search-history', async () => {
+  store.set('searchHistory', []);
+  return [];
+});
+
 // 不再需要这个处理程序，因为在同一窗口播放
 // ipcMain.handle('play-video', ...) 已移除
 
