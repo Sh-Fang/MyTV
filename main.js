@@ -4,6 +4,7 @@ import fs from 'fs';
 import os from 'os';
 import Store from 'electron-store';
 import { fileURLToPath } from 'url';
+import Fuse from 'fuse.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -224,6 +225,45 @@ ipcMain.handle('get-channels', async () => {
     return channels;
   } catch (error) {
     console.error('读取频道数据失败:', error);
+    return [];
+  }
+});
+
+// 搜索视频
+ipcMain.handle('search-videos', async (event, keyword) => {
+  try {
+    if (!keyword || keyword.trim() === '') {
+      return [];
+    }
+
+    const channels = getChannelsData();
+    const allVideos = [];
+
+    for (const channel of channels) {
+      if (channel.videos && Array.isArray(channel.videos)) {
+        for (const video of channel.videos) {
+          allVideos.push({
+            ...video,
+            channelName: channel.name,
+            channelPath: channel.path
+          });
+        }
+      }
+    }
+
+    const fuse = new Fuse(allVideos, {
+      keys: ['name', 'channelName'],
+      threshold: 0.4,
+      ignoreLocation: true,
+      minMatchCharLength: 1
+    });
+
+    const results = fuse.search(keyword);
+    console.log(`搜索 "${keyword}" 找到 ${results.length} 个结果`);
+    
+    return results.map(result => result.item);
+  } catch (error) {
+    console.error('搜索失败:', error);
     return [];
   }
 });

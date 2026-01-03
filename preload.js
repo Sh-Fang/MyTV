@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld('videoAPI', {
   // 保存频道数据到数据库
   saveChannelData: (channelData) => ipcRenderer.invoke('save-channel-data', channelData),
   // 从数据库获取所有频道
-  getChannels: () => ipcRenderer.invoke('get-channels')
+  getChannels: () => ipcRenderer.invoke('get-channels'),
+  // 搜索视频
+  searchVideos: (keyword) => ipcRenderer.invoke('search-videos', keyword)
 });
 

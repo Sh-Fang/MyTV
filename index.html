@@ -41,6 +41,72 @@
             margin-bottom: 20px;
         }
 
+        .search-container {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .search-box {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            background: #16213e;
+            padding: 12px 20px;
+            border-radius: 10px;
+            border: 2px solid #667eea;
+        }
+
+        .search-input {
+            background: transparent;
+            border: none;
+            outline: none;
+            color: #fff;
+            font-size: 16px;
+            width: 400px;
+            padding: 5px;
+        }
+
+        .search-input::placeholder {
+            color: #888;
+        }
+
+        .search-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .search-btn:hover {
+            background: #5568d3;
+        }
+
+        .clear-search-btn {
+            background: #e74c3c;
+            color: white;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .clear-search-btn:hover {
+            background: #c0392b;
+        }
+
+        .search-results-header {
+            text-align: center;
+            margin: 20px 0;
+            color: #888;
+            font-size: 14px;
+        }
+
         .scan-btn {
             background: #667eea;
             color: white;
@@ -458,6 +524,23 @@
             <button class="scan-btn" onclick="scanAndAnalyzeVideos()" style="margin-left: 15px; background: #4CAF50;">🔍 扫描并统计视频</button>
             <button class="scan-btn" onclick="enterChannelMode()" style="margin-left: 15px; background: #764ba2;">📺 进入频道模式</button>
         </div>
+
+        <div class="search-container">
+            <div class="search-box">
+                <span>🔍</span>
+                <input 
+                    type="text" 
+                    id="searchInput" 
+                    class="search-input" 
+                    placeholder="搜索视频或频道名..." 
+                    onkeypress="handleSearchKeyPress(event)"
+                >
+                <button class="search-btn" onclick="performSearch()">搜索</button>
+                <button class="clear-search-btn" onclick="clearSearch()">清除</button>
+            </div>
+        </div>
+
+        <div id="searchResultsHeader" class="search-results-header" style="display: none;"></div>
 
         <div id="videoList" class="video-list"></div>
     </div>
@@ -1119,6 +1202,90 @@
             
             console.log(`切换频道: ${currentChannelIndex + 1} -> ${newIndex + 1}`);
             playChannelAtCurrentTime(newIndex);
+            showChannelInfo();
+        }
+
+        // 搜索功能
+        let isSearchMode = false;
+
+        // 执行搜索
+        async function performSearch() {
+            const searchInput = document.getElementById('searchInput');
+            const keyword = searchInput.value.trim();
+            
+            if (!keyword) {
+                alert('请输入搜索关键词');
+                return;
+            }
+
+            try {
+                const results = await window.videoAPI.searchVideos(keyword);
+                
+                if (results.length === 0) {
+                    document.getElementById('searchResultsHeader').style.display = 'block';
+                    document.getElementById('searchResultsHeader').textContent = `未找到包含 "${keyword}" 的视频`;
+                    document.getElementById('videoList').innerHTML = '<div class="empty">没有搜索结果</div>';
+                } else {
+                    isSearchMode = true;
+                    document.getElementById('searchResultsHeader').style.display = 'block';
+                    document.getElementById('searchResultsHeader').textContent = `找到 ${results.length} 个结果`;
+                    
+                    displaySearchResults(results);
+                }
+            } catch (error) {
+                console.error('搜索失败:', error);
+                alert('搜索失败: ' + error.message);
+            }
+        }
+
+        // 显示搜索结果
+        function displaySearchResults(results) {
+            const videoList = document.getElementById('videoList');
+            videoList.innerHTML = '';
+
+            results.forEach(video => {
+                const item = document.createElement('div');
+                item.className = 'video-item';
+                item.onclick = () => openTimeModal(video.path);
+                
+                item.innerHTML = `
+                    <div class="video-name">${video.name}</div>
+                    <div class="video-info">频道: ${video.channelName}</div>
+                    ${video.duration ? `<div class="video-duration">${formatDuration(video.duration)}</div>` : ''}
+                `;
+                
+                videoList.appendChild(item);
+            });
+        }
+
+        // 清除搜索
+        async function clearSearch() {
+            const searchInput = document.getElementById('searchInput');
+            searchInput.value = '';
+            isSearchMode = false;
+            
+            document.getElementById('searchResultsHeader').style.display = 'none';
+            
+            await loadChannels();
+        }
+
+        // 处理搜索框回车键
+        function handleSearchKeyPress(event) {
+            if (event.key === 'Enter') {
+                performSearch();
+            }
+        }
+
+        // 格式化时长
+        function formatDuration(seconds) {
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            const secs = Math.floor(seconds % 60);
+            
+            if (hours > 0) {
+                return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            }
+            return `${minutes}:${secs.toString().padStart(2, '0')}`;
         }
 
         // 设置频道模式键盘控制
