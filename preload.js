@@ -18,8 +18,10 @@ contextBridge.exposeInMainWorld('videoAPI', {
   // 新增：频道相关 API
   // 扫描频道（扫描子文件夹）
   scanChannels: (rootPath) => ipcRenderer.invoke('scan-channels', rootPath),
-  // 保存频道数据到数据库
+  // 保存频道数据到数据库（单个频道）
   saveChannelData: (channelData) => ipcRenderer.invoke('save-channel-data', channelData),
+  // 保存所有频道数据（全量覆盖）
+  saveAllChannels: (allChannels) => ipcRenderer.invoke('save-all-channels', allChannels),
   // 从数据库获取所有频道
   getChannels: () => ipcRenderer.invoke('get-channels'),
   // 搜索视频

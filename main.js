@@ -173,7 +173,7 @@ ipcMain.handle('scan-channels', async (event, rootPath) => {
   return scanChannels(rootPath);
 });
 
-// 保存频道数据
+// 保存频道数据（单个频道，增量更新）
 ipcMain.handle('save-channel-data', async (event, channelData) => {
   try {
     const channels = getChannelsData();
@@ -213,6 +213,40 @@ ipcMain.handle('save-channel-data', async (event, channelData) => {
     return { success: true };
   } catch (error) {
     console.error('保存频道数据失败:', error);
+    throw error;
+  }
+});
+
+// 保存所有频道数据（全量覆盖）
+ipcMain.handle('save-all-channels', async (event, allChannels) => {
+  try {
+    const formattedChannels = allChannels.map((channelData, index) => {
+      // 计算总时长
+      const totalDuration = channelData.videos.reduce((sum, v) => sum + (v.duration || 0), 0);
+      
+      return {
+        id: Date.now() + index,
+        name: channelData.name,
+        path: channelData.path,
+        video_count: channelData.videos.length,
+        total_duration: totalDuration,
+        last_scan_time: new Date().toISOString(),
+        videos: channelData.videos.map((video, idx) => ({
+          name: video.name,
+          path: video.path,
+          duration: video.duration || 0,
+          file_size: video.size,
+          position_in_channel: idx
+        }))
+      };
+    });
+    
+    // 全量覆盖
+    saveChannelsData(formattedChannels);
+    console.log(`保存 ${formattedChannels.length} 个频道，总计 ${formattedChannels.reduce((sum, ch) => sum + ch.video_count, 0)} 个视频`);
+    return { success: true };
+  } catch (error) {
+    console.error('保存所有频道失败:', error);
     throw error;
   }
 });

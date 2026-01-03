@@ -793,11 +793,11 @@
                         console.log(`${video.name}: ${video.duration}秒`);
                         processedVideos++;
                     }
-                    
-                    // 4. 保存频道到数据库
-                    console.log(`保存频道 ${channel.name} 到数据库`);
-                    await window.videoAPI.saveChannelData(channel);
                 }
+                
+                // 4. 一次性保存所有频道（全量覆盖）
+                console.log('保存所有频道数据到数据库（全量覆盖）');
+                await window.videoAPI.saveAllChannels(channels);
                 
                 // 5. 显示完成信息
                 videoList.innerHTML = `
@@ -1173,25 +1173,19 @@
             document.getElementById('listView').style.display = 'block';
         }
 
-        // 获取今天的起始时间（00:00:00）
-        function getTodayStartTime() {
-            const now = new Date();
-            return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).getTime();
-        }
-
         // 计算当前时刻频道应该播放的位置
         function calculatePlayPosition(channel) {
-            const startTime = getTodayStartTime();
-            const now = Date.now();
-            const elapsedSeconds = Math.floor((now - startTime) / 1000);
+            // 从 Unix 纪元时间（1970-01-01 00:00:00）开始计算
+            // 模拟频道从很久以前就开始循环播放
+            const totalElapsedSeconds = Math.floor(Date.now() / 1000);
             
             // 在循环播放列表中的位置
-            const positionInLoop = elapsedSeconds % channel.total_duration;
+            const positionInLoop = totalElapsedSeconds % channel.total_duration;
             
             console.log(`频道 ${channel.name}:`);
             console.log(`- 总时长: ${channel.total_duration}秒`);
-            console.log(`- 今日已播放: ${elapsedSeconds}秒`);
-            console.log(`- 当前位置: ${positionInLoop}秒`);
+            console.log(`- 从1970年至今: ${totalElapsedSeconds}秒`);
+            console.log(`- 当前循环位置: ${positionInLoop}秒`);
             
             // 找到具体是哪个视频、哪个时间点
             let accumulated = 0;
@@ -1235,7 +1229,7 @@
             currentVideoIndexInChannel = playInfo.videoIndex;
             
             // 更新 UI
-            document.getElementById('channelNumber').textContent = `${channelIndex + 1}`;
+            document.getElementById('channelNumber').textContent = `${channelIndex + 1} - ${channel.name}`;
             document.getElementById('channelWatermark').textContent = playInfo.video.name;
             
             // 播放视频
