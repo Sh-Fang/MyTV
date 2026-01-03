@@ -1,9 +1,36 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
 let mainWindow;
+const configPath = path.join(app.getPath('userData'), 'config.json');
+
+// 读取配置
+function loadConfig() {
+  try {
+    if (fs.existsSync(configPath)) {
+      const data = fs.readFileSync(configPath, 'utf8');
+      return JSON.parse(data);
+    }
+  } catch (error) {
+    console.error('读取配置失败:', error);
+  }
+  return {};
+}
+
+// 保存配置
+function saveConfig(config) {
+  try {
+    const dir = path.dirname(configPath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+  } catch (error) {
+    console.error('保存配置失败:', error);
+  }
+}
 
 function createWindow() {
   // 创建浏览器窗口
@@ -77,6 +104,30 @@ function scanVideoFiles(dirPath) {
 }
 
 // IPC 处理程序
+ipcMain.handle('select-directory', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory'],
+    title: '选择视频文件夹'
+  });
+  
+  if (result.canceled) {
+    return null;
+  }
+  
+  const selectedPath = result.filePaths[0];
+  
+  const config = loadConfig();
+  config.videoDirectory = selectedPath;
+  saveConfig(config);
+  
+  return selectedPath;
+});
+
+ipcMain.handle('get-saved-directory', async () => {
+  const config = loadConfig();
+  return config.videoDirectory || null;
+});
+
 ipcMain.handle('get-videos-path', async () => {
   return getVideosPath();
 });

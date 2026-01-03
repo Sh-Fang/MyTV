@@ -5,6 +5,10 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 // 暴露视频相关的API给渲染进程
 contextBridge.exposeInMainWorld('videoAPI', {
+  // 选择目录
+  selectDirectory: () => ipcRenderer.invoke('select-directory'),
+  // 获取保存的目录
+  getSavedDirectory: () => ipcRenderer.invoke('get-saved-directory'),
   // 获取用户主目录的 Videos 文件夹路径
   getVideosPath: () => ipcRenderer.invoke('get-videos-path'),
   // 扫描指定目录的视频文件
