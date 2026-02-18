@@ -32,8 +32,9 @@ type Channel struct {
 // ---- 全局状态 ----
 
 var channels []Channel
+var currentChIndex int // 后端维护当前频道，所有 tv 端保持一致
 
-const videoDir = "/home/oasis/视频/mytv/gpu_processed" // 修改为你的视频根目录
+const videoDir = "/home/oasis/视频/mytv/gpu_processed"
 
 // ---- MP4 时长解析 ----
 
@@ -159,11 +160,11 @@ var upgrader = websocket.Upgrader{
 }
 
 type Hub struct {
-	tvConn *websocket.Conn
-	mu     sync.Mutex
+	tvConns map[*websocket.Conn]bool
+	mu      sync.Mutex
 }
 
-var hub = Hub{}
+var hub = Hub{tvConns: make(map[*websocket.Conn]bool)}
 
 // ---- main ----
 
@@ -289,16 +290,18 @@ func handleWS(c *gin.Context) {
 		return
 	}
 	hub.mu.Lock()
-	hub.tvConn = conn
+	hub.tvConns[conn] = true
+	// 新连接立即同步当前频道
+	conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("SWITCH:%d", currentChIndex)))
 	hub.mu.Unlock()
-	fmt.Println("电视端已连接")
+	fmt.Printf("电视端已连接，当前共 %d 个\n", len(hub.tvConns))
 
 	defer func() {
 		hub.mu.Lock()
-		hub.tvConn = nil
+		delete(hub.tvConns, conn)
 		hub.mu.Unlock()
 		conn.Close()
-		fmt.Println("电视端断开")
+		fmt.Printf("电视端断开，当前共 %d 个\n", len(hub.tvConns))
 	}()
 
 	for {
@@ -312,13 +315,33 @@ func handleSend(c *gin.Context) {
 	cmd := c.Query("cmd")
 	hub.mu.Lock()
 	defer hub.mu.Unlock()
-	if hub.tvConn != nil {
-		if err := hub.tvConn.WriteMessage(websocket.TextMessage, []byte(cmd)); err != nil {
-			c.JSON(500, gin.H{"status": "推送失败"})
-			return
-		}
-		c.JSON(200, gin.H{"status": "已发送", "command": cmd})
-	} else {
-		c.JSON(404, gin.H{"status": "电视端未连接"})
+
+	if len(hub.tvConns) == 0 {
+		c.JSON(404, gin.H{"status": "无电视端连接"})
+		return
 	}
+
+	// 遥控器切台：后端算出新频道号，广播绝对指令
+	total := len(channels)
+	outCmd := cmd
+	if cmd == "NEXT" {
+		currentChIndex = (currentChIndex + 1) % total
+		outCmd = fmt.Sprintf("SWITCH:%d", currentChIndex)
+	} else if cmd == "PREV" {
+		currentChIndex = (currentChIndex - 1 + total) % total
+		outCmd = fmt.Sprintf("SWITCH:%d", currentChIndex)
+	}
+
+	var failed []*websocket.Conn
+	for conn := range hub.tvConns {
+		if err := conn.WriteMessage(websocket.TextMessage, []byte(outCmd)); err != nil {
+			failed = append(failed, conn)
+		}
+	}
+	for _, conn := range failed {
+		delete(hub.tvConns, conn)
+		conn.Close()
+	}
+
+	c.JSON(200, gin.H{"status": "已发送", "command": outCmd, "receivers": len(hub.tvConns)})
 }

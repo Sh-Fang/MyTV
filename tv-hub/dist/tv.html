@@ -55,7 +55,7 @@
 </head>
 <body>
     <div id="app">
-        <video ref="videoEl" autoplay playsinline @ended="onEnded"></video>
+        <video ref="videoEl" autoplay playsinline muted @ended="onEnded"></video>
 
         <!-- 频道切换提示 -->
         <div class="ch-info" :style="{ opacity: showChInfo ? 1 : 0 }">
@@ -177,10 +177,9 @@
                         const total = channels.value.length;
                         if (total === 0) return;
                         const cmd = e.data;
-                        if (cmd === 'NEXT') {
-                            playChannel((currentChIdx.value + 1) % total);
-                        } else if (cmd === 'PREV') {
-                            playChannel((currentChIdx.value - 1 + total) % total);
+                        if (cmd.startsWith('SWITCH:')) {
+                            const idx = parseInt(cmd.split(':')[1]);
+                            playChannel(idx);
                         } else if (cmd === 'VOL_UP') {
                             changeVolume(0.1);
                         } else if (cmd === 'VOL_DOWN') {
@@ -195,9 +194,8 @@
                 onMounted(async () => {
                     const res = await fetch('/api/channels');
                     const list = await res.json();
-                    channels.value = list; // [{id, name, fileCount}]
-                    if (list.length > 0) playChannel(0);
-                    initWS();
+                    channels.value = list;
+                    initWS(); // 连上后会收到 SWITCH:N 开始播放
                 });
 
                 return { videoEl, currentChannelName, showChInfo, volume, showVol, showSchedule, schedule, onEnded };
