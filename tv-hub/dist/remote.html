@@ -1,15 +1,120 @@
-<h1>遥控器 (HTTP)</h1>
-<button onclick="send('PREV')">上一个台</button>
-<button onclick="send('NEXT')">下一个台</button>
-
-<script>
-    async function send(cmd) {
-        // 使用 fetch 发送简单的 HTTP 请求
-        try {
-            const res = await fetch(`/send?cmd=${cmd}`);
-            if (res.ok) console.log("指令发送成功");
-        } catch (e) {
-            console.error("发送失败", e);
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>交互遥控器</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        :root {
+            --bg: #1a1a1a;
+            --panel: #2a2a2a;
+            --btn-gray: #3d3d3d;
+            --btn-ok: #4d4d4d;
+            --accent: #007AFF;
         }
-    }
-</script>
+        body { margin: 0; background: var(--bg); color: white; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        
+        #app { width: 100%; max-width: 400px; display: flex; flex-direction: column; align-items: center; }
+
+        /* 十字键容器 */
+        .d-pad {
+            position: relative;
+            width: 280px;
+            height: 280px;
+            background: var(--panel);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+        }
+
+        /* 基础按键样式 */
+        .pad-btn {
+            position: absolute;
+            background: var(--btn-gray);
+            border: none;
+            color: white;
+            font-size: 1.5rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: all 0.1s;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .pad-btn:active { background: var(--accent); }
+
+        /* 上下键 - 负责发指令换台 */
+        .up { top: 10px; width: 90px; height: 70px; border-radius: 40px 40px 10px 10px; }
+        .down { bottom: 10px; width: 90px; height: 70px; border-radius: 10px 10px 40px 40px; }
+
+        /* 左右键 - 暂时 Console Log */
+        .left { left: 10px; width: 70px; height: 90px; border-radius: 40px 10px 10px 40px; }
+        .right { right: 10px; width: 70px; height: 90px; border-radius: 10px 40px 40px 10px; }
+
+        /* OK键 - 居中，暂时 Console Log */
+        .ok-btn {
+            width: 90px;
+            height: 90px;
+            background: var(--btn-ok);
+            border-radius: 50%;
+            border: 4px solid var(--panel);
+            color: white;
+            font-weight: bold;
+            font-size: 1.2rem;
+            z-index: 10;
+            cursor: pointer;
+            box-shadow: inset 0 0 15px rgba(0,0,0,0.5);
+            -webkit-tap-highlight-color: transparent;
+        }
+        .ok-btn:active { background: var(--accent); transform: scale(0.95); border-radius: 50%; }
+
+        .hint { margin-top: 40px; color: #666; font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="d-pad">
+            <button class="pad-btn up" @click="sendCmd('NEXT')">▲</button>
+            <button class="pad-btn down" @click="sendCmd('PREV')">▼</button>
+
+            <button class="pad-btn left" @click="logOnly('LEFT')">◀</button>
+            <button class="pad-btn right" @click="logOnly('RIGHT')">▶</button>
+
+            <button class="ok-btn" @click="logOnly('OK')">OK</button>
+        </div>
+
+        <div class="hint">上下键切换频道</div>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+        createApp({
+            setup() {
+                // 震动反馈函数
+                const vibrate = () => {
+                    if (window.navigator.vibrate) window.navigator.vibrate(40);
+                };
+
+                // 发送真实指令给 Go 后端
+                const sendCmd = (cmd) => {
+                    vibrate();
+                    fetch(`/api/send?cmd=${cmd}`)
+                        .then(() => console.log(`指令 [${cmd}] 已发送到电视`))
+                        .catch(err => console.error('网络错误:', err));
+                };
+
+                // 仅在本地控制台打印
+                const logOnly = (action) => {
+                    vibrate();
+                    console.log(`[本地日志] 用户按下了: ${action} (暂未发送指令)`);
+                };
+
+                return { sendCmd, logOnly };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

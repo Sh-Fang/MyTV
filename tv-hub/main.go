@@ -3,16 +3,159 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
 	"sync"
+	"time"
 
+	"github.com/abema/go-mp4"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
 
+// ---- 数据结构 ----
+
+type VideoFile struct {
+	Path     string
+	Duration float64 // 秒
+}
+
+type Channel struct {
+	ID           int
+	Name         string
+	Videos       []VideoFile
+	TotalSeconds float64
+}
+
+// ---- 全局状态 ----
+
+var channels []Channel
+
+const videoDir = "/home/oasis/视频/mytv/gpu_processed" // 修改为你的视频根目录
+
+// ---- MP4 时长解析 ----
+
+func getMp4Duration(path string) (float64, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+
+	var duration float64
+	_, err = mp4.ReadBoxStructure(f, func(h *mp4.ReadHandle) (interface{}, error) {
+		if h.BoxInfo.Type == mp4.BoxTypeMvhd() {
+			box, _, err := h.ReadPayload()
+			if err != nil {
+				return nil, err
+			}
+			switch b := box.(type) {
+			case *mp4.Mvhd:
+				if b.GetVersion() == 0 {
+					duration = float64(b.DurationV0) / float64(b.Timescale)
+				} else {
+					duration = float64(b.DurationV1) / float64(b.Timescale)
+				}
+			}
+		}
+		return h.Expand()
+	})
+	return duration, err
+}
+
+// ---- 启动时扫描目录 ----
+
+func scanChannels(root string) ([]Channel, error) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil, err
+	}
+
+	var result []Channel
+	id := 0
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		chDir := filepath.Join(root, entry.Name())
+		files, err := os.ReadDir(chDir)
+		if err != nil {
+			continue
+		}
+
+		var videos []VideoFile
+		for _, f := range files {
+			if f.IsDir() {
+				continue
+			}
+			if filepath.Ext(f.Name()) != ".mp4" {
+				continue
+			}
+			fullPath := filepath.Join(chDir, f.Name())
+			dur, err := getMp4Duration(fullPath)
+			if err != nil || dur <= 0 {
+				fmt.Printf("警告: 无法读取时长 %s: %v\n", fullPath, err)
+				continue
+			}
+			videos = append(videos, VideoFile{Path: fullPath, Duration: dur})
+		}
+
+		if len(videos) == 0 {
+			continue
+		}
+
+		// 按文件名排序（ReadDir 已经是字母序，但显式 sort 更保险）
+		sort.Slice(videos, func(i, j int) bool {
+			return filepath.Base(videos[i].Path) < filepath.Base(videos[j].Path)
+		})
+
+		var total float64
+		for _, v := range videos {
+			total += v.Duration
+		}
+
+		result = append(result, Channel{
+			ID:           id,
+			Name:         entry.Name(),
+			Videos:       videos,
+			TotalSeconds: total,
+		})
+		id++
+	}
+	return result, nil
+}
+
+// ---- 时间轴计算 ----
+
+type PlayPosition struct {
+	FileIndex int     `json:"fileIndex"`
+	Offset    float64 `json:"offset"` // 秒
+}
+
+func calcPosition(ch Channel) PlayPosition {
+	now := float64(time.Now().Unix())
+	pos := math_mod(now, ch.TotalSeconds)
+
+	var acc float64
+	for i, v := range ch.Videos {
+		if pos < acc+v.Duration {
+			return PlayPosition{FileIndex: i, Offset: pos - acc}
+		}
+		acc += v.Duration
+	}
+	return PlayPosition{FileIndex: 0, Offset: 0}
+}
+
+func math_mod(a, b float64) float64 {
+	return a - float64(int(a/b))*b
+}
+
+// ---- WebSocket Hub ----
+
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true // 允许跨域
-	},
+	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
 type Hub struct {
@@ -22,72 +165,100 @@ type Hub struct {
 
 var hub = Hub{}
 
-type Channel struct {
-	ID   int    `json:"id"`
-	Name string `json:"name"`
-	URL  string `json:"url"`
-}
-
-var channels = []Channel{
-	{1, "CCTV-1", "http://example.com/cctv1.m3u8"},
-	{2, "CCTV-6", "http://example.com/cctv6.m3u8"},
-	{3, "湖南卫视", "http://example.com/hunan.m3u8"},
-}
+// ---- main ----
 
 func main() {
-	r := gin.Default()
+	var err error
+	fmt.Println("扫描视频目录...")
+	channels, err = scanChannels(videoDir)
+	if err != nil {
+		fmt.Printf("扫描失败: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("加载完成，共 %d 个频道\n", len(channels))
+	for _, ch := range channels {
+		fmt.Printf("  [%d] %s — %d 个视频，总时长 %.0f 秒\n", ch.ID, ch.Name, len(ch.Videos), ch.TotalSeconds)
+	}
 
-	// --- 1. API 分组管理 (保持不变) ---
+	r := gin.Default()
 	api := r.Group("/api")
 	{
 		api.GET("/ws", handleWS)
 		api.GET("/send", handleSend)
+
+		// 返回频道列表（id + name + fileCount）
 		api.GET("/channels", func(c *gin.Context) {
-			c.JSON(200, channels)
+			type ChInfo struct {
+				ID        int    `json:"id"`
+				Name      string `json:"name"`
+				FileCount int    `json:"fileCount"`
+			}
+			var list []ChInfo
+			for _, ch := range channels {
+				list = append(list, ChInfo{ID: ch.ID, Name: ch.Name, FileCount: len(ch.Videos)})
+			}
+			c.JSON(200, list)
+		})
+
+		// 返回当前播放位置
+		api.GET("/position/:id", func(c *gin.Context) {
+			id, _ := strconv.Atoi(c.Param("id"))
+			if id < 0 || id >= len(channels) {
+				c.JSON(404, gin.H{"error": "频道不存在"})
+				return
+			}
+			pos := calcPosition(channels[id])
+			c.JSON(200, pos)
+		})
+
+		// 流式传输视频文件
+		api.GET("/video/:id/:fileIndex", func(c *gin.Context) {
+			id, _ := strconv.Atoi(c.Param("id"))
+			fi, _ := strconv.Atoi(c.Param("fileIndex"))
+			if id < 0 || id >= len(channels) {
+				c.Status(404)
+				return
+			}
+			ch := channels[id]
+			if fi < 0 || fi >= len(ch.Videos) {
+				c.Status(404)
+				return
+			}
+			c.Header("Content-Type", "video/mp4")
+			http.ServeFile(c.Writer, c.Request, ch.Videos[fi].Path)
 		})
 	}
 
-	// --- 2. 处理首页跳转 ---
-	// 如果用户直接访问 http://IP:8080/
 	r.GET("/", func(c *gin.Context) {
-		c.Redirect(http.StatusMovedPermanently, "/remote.html")
+		c.Redirect(http.StatusMovedPermanently, "/tv.html")
 	})
 
-	// --- 3. 静态文件兜底方案 (核心修改) ---
-	// 不再使用 r.Static，而是使用 NoRoute
-	// 这样请求进来时，Gin 会先匹配 /api，匹配不到才会进到这里
 	r.NoRoute(func(c *gin.Context) {
-		path := c.Request.URL.Path
-		// 构建本地文件路径
-		localFile := "./dist" + path
-
-		// 尝试打开该文件
-		c.File(localFile)
+		c.File("./dist" + c.Request.URL.Path)
 	})
 
 	fmt.Println("TV-Hub 运行在 :8080")
 	r.Run(":8080")
 }
 
-// 提取处理函数让 main 保持整洁
+// ---- WebSocket 处理 ----
+
 func handleWS(c *gin.Context) {
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		return
 	}
-
 	hub.mu.Lock()
 	hub.tvConn = conn
 	hub.mu.Unlock()
-
-	fmt.Println("电视端已通过 WebSocket 连接 (via /api/ws)")
+	fmt.Println("电视端已连接")
 
 	defer func() {
 		hub.mu.Lock()
 		hub.tvConn = nil
 		hub.mu.Unlock()
 		conn.Close()
-		fmt.Println("电视端断开连接")
+		fmt.Println("电视端断开")
 	}()
 
 	for {
@@ -99,13 +270,10 @@ func handleWS(c *gin.Context) {
 
 func handleSend(c *gin.Context) {
 	cmd := c.Query("cmd")
-
 	hub.mu.Lock()
 	defer hub.mu.Unlock()
-
 	if hub.tvConn != nil {
-		err := hub.tvConn.WriteMessage(websocket.TextMessage, []byte(cmd))
-		if err != nil {
+		if err := hub.tvConn.WriteMessage(websocket.TextMessage, []byte(cmd)); err != nil {
 			c.JSON(500, gin.H{"status": "推送失败"})
 			return
 		}

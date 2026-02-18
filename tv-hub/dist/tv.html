@@ -1,9 +1,124 @@
-<h1>电视端 (WebSocket)</h1>
-<p id="status">等待指令...</p>
-<script>
-    // 电视通过 WS 监听
-    const ws = new WebSocket('ws://' + location.host + '/ws');
-    ws.onmessage = (e) => {
-        document.getElementById('status').innerText = "收到遥控信号: " + e.data;
-    };
-</script>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>极简电视端</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+        #app { width: 100%; height: 100%; position: relative; }
+        video { width: 100%; height: 100%; object-fit: contain; }
+        .info-overlay {
+            position: absolute; top: 20px; right: 20px;
+            background: rgba(0,0,0,0.6); color: #fff;
+            padding: 10px 20px; border-radius: 5px;
+            font-family: sans-serif; font-size: 1.2rem;
+            transition: opacity 0.5s;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <video ref="videoEl" autoplay playsinline @ended="onEnded"></video>
+        <div class="info-overlay" :style="{ opacity: showInfo ? 1 : 0 }">
+            {{ currentChannelName }}
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted } = Vue;
+
+        createApp({
+            setup() {
+                const videoEl = ref(null);
+                const channels = ref([]);
+                const currentChIdx = ref(0);
+                const currentFileIdx = ref(0);
+                const showInfo = ref(false);
+                let infoTimer = null;
+
+                const currentChannelName = ref('加载中...');
+
+                // 显示频道名 3 秒
+                const flashInfo = (name) => {
+                    currentChannelName.value = name;
+                    showInfo.value = true;
+                    clearTimeout(infoTimer);
+                    infoTimer = setTimeout(() => showInfo.value = false, 3000);
+                };
+
+                // 播放指定频道，从后端获取当前时间轴位置
+                const playChannel = async (chIdx) => {
+                    currentChIdx.value = chIdx;
+                    const ch = channels.value[chIdx];
+                    flashInfo(ch.name);
+
+                    // 向后端查询当前应播到哪里
+                    const res = await fetch(`/api/position/${ch.id}`);
+                    const pos = await res.json(); // { fileIndex, offset }
+
+                    currentFileIdx.value = pos.fileIndex;
+                    loadVideo(ch.id, pos.fileIndex, pos.offset);
+                };
+
+                // 加载并播放某个视频文件，从 offset 秒开始
+                const loadVideo = (chId, fileIdx, offset) => {
+                    const video = videoEl.value;
+                    video.src = `/api/video/${chId}/${fileIdx}`;
+                    video.load();
+                    video.oncanplay = () => {
+                        video.currentTime = offset;
+                        video.play();
+                        video.oncanplay = null;
+                    };
+                };
+
+                // 当前视频播完，自动播下一个
+                const onEnded = () => {
+                    const ch = channels.value[currentChIdx.value];
+                    // 后端会通过时间轴自动算出下一个，直接重新 position 即可
+                    // 但为了简单，这里直接取下一个文件（时间轴已经自然推进）
+                    const nextFile = (currentFileIdx.value + 1) % ch.videos.length;
+                    currentFileIdx.value = nextFile;
+                    loadVideo(ch.id, nextFile, 0);
+                };
+
+                // WebSocket 接收遥控指令
+                const initWS = () => {
+                    const ws = new WebSocket(`ws://${location.host}/api/ws`);
+                    ws.onmessage = (e) => {
+                        const total = channels.value.length;
+                        if (total === 0) return;
+                        if (e.data === 'NEXT') {
+                            playChannel((currentChIdx.value + 1) % total);
+                        } else if (e.data === 'PREV') {
+                            playChannel((currentChIdx.value - 1 + total) % total);
+                        }
+                    };
+                    ws.onclose = () => setTimeout(initWS, 2000);
+                };
+
+                onMounted(async () => {
+                    // 获取频道列表（含 id + name，后端还会返回 videos 数量供 onEnded 用）
+                    const res = await fetch('/api/channels');
+                    const list = await res.json();
+                    // 前端也需要知道每个频道有多少个文件，用于 onEnded 循环
+                    // 所以我们在 channels 里存一个 videos 数组（只存长度信息）
+                    // 通过 position 接口的 fileIndex 范围可以推断，但更简单的做法：
+                    // 后端 /api/channels 直接返回 fileCount
+                    channels.value = list.map(ch => ({
+                        ...ch,
+                        videos: { length: ch.fileCount }
+                    }));
+                    if (list.length > 0) playChannel(0);
+                    initWS();
+                });
+
+                return { videoEl, currentChannelName, showInfo, onEnded };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
