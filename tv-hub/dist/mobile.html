@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>TV Mobile</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body, html {
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
+            background: #000; overflow: hidden;
+        }
+        #app { width: 100%; height: 100%; position: relative; }
+
+        video {
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%;
+            object-fit: contain;
+        }
+
+        /* 启动遮罩 */
+        .splash {
+            position: absolute; inset: 0;
+            background: #000;
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+            gap: 20px; z-index: 100;
+            transition: opacity 0.4s;
+        }
+        .splash.hide { opacity: 0; pointer-events: none; }
+        .splash-title { color: #fff; font-family: sans-serif; font-size: 1.4rem; letter-spacing: 0.1em; }
+        .splash-btn {
+            width: 80px; height: 80px; border-radius: 50%;
+            background: rgba(255,255,255,0.15);
+            border: 2px solid rgba(255,255,255,0.4);
+            display: flex; justify-content: center; align-items: center;
+            cursor: pointer; -webkit-tap-highlight-color: transparent;
+        }
+        .splash-btn svg { width: 32px; height: 32px; fill: #fff; margin-left: 4px; }
+
+        /* 频道提示 */
+        .ch-info {
+            position: absolute; top: 16px; right: 16px;
+            background: rgba(0,0,0,0.6); color: #fff;
+            padding: 8px 16px; border-radius: 4px;
+            font-family: sans-serif; font-size: 1rem;
+            transition: opacity 0.5s; pointer-events: none;
+        }
+
+        /* 音量条 */
+        .vol-bar {
+            position: absolute; bottom: 48px; left: 50%;
+            transform: translateX(-50%);
+            display: flex; align-items: center; gap: 10px;
+            background: rgba(0,0,0,0.65); padding: 8px 18px;
+            border-radius: 30px; transition: opacity 0.5s; pointer-events: none;
+            white-space: nowrap;
+        }
+        .vol-label { color: #fff; font-family: sans-serif; font-size: 0.9rem; }
+        .vol-track { width: 140px; height: 5px; background: rgba(255,255,255,0.25); border-radius: 3px; overflow: hidden; }
+        .vol-fill { height: 100%; background: #fff; border-radius: 3px; transition: width 0.1s; }
+
+        /* 节目单 */
+        .schedule-panel {
+            position: absolute; bottom: 0; left: 0; right: 0;
+            background: rgba(0,0,0,0.85);
+            padding: 20px 24px 28px;
+            font-family: sans-serif;
+            transition: opacity 0.3s, transform 0.3s;
+        }
+        .schedule-panel.hidden { opacity: 0; transform: translateY(20px); pointer-events: none; }
+        .sch-channel { color: #aaa; font-size: 0.8rem; margin-bottom: 12px; letter-spacing: 0.05em; }
+        .sch-list { display: flex; flex-direction: column; gap: 10px; }
+        .sch-item { display: flex; align-items: center; gap: 12px; }
+        .sch-time { color: #aaa; font-size: 0.85rem; width: 100px; flex-shrink: 0; }
+        .sch-title { color: #fff; font-size: 0.95rem; }
+        .sch-item.current .sch-time { color: #fff; }
+        .sch-item.current .sch-title { color: #4af; font-weight: bold; }
+        .sch-item.current::before { content: '▶'; color: #4af; font-size: 0.75rem; flex-shrink: 0; }
+        .sch-item:not(.current)::before { content: ''; width: 0.75rem; flex-shrink: 0; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <video ref="videoEl" playsinline controls @ended="onEnded"></video>
+
+        <!-- 频道提示 -->
+        <div class="ch-info" :style="{ opacity: showChInfo ? 1 : 0 }">
+            {{ currentChannelName }}
+        </div>
+
+        <!-- 音量条 -->
+        <div class="vol-bar" :style="{ opacity: showVol ? 1 : 0 }">
+            <span class="vol-label">音量</span>
+            <div class="vol-track">
+                <div class="vol-fill" :style="{ width: (volume * 100) + '%' }"></div>
+            </div>
+            <span class="vol-label">{{ Math.round(volume * 100) }}</span>
+        </div>
+
+        <!-- 节目单 -->
+        <div class="schedule-panel" :class="{ hidden: !showSchedule }">
+            <div class="sch-channel">{{ currentChannelName }}</div>
+            <div class="sch-list">
+                <div v-for="item in schedule" :key="item.title + item.startsAt"
+                     class="sch-item" :class="{ current: item.current }">
+                    <span class="sch-time">{{ item.startsAt }} – {{ item.endsAt }}</span>
+                    <span class="sch-title">{{ item.title }}</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 启动遮罩，最后渲染在最上层 -->
+        <div class="splash" :class="{ hide: splashHidden }" @click="onSplashClick">
+            <div class="splash-title">点击开始</div>
+            <div class="splash-btn">
+                <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted } = Vue;
+
+        createApp({
+            setup() {
+                const videoEl = ref(null);
+                const channels = ref([]);
+                const currentChIdx = ref(0);
+                const currentFileIdx = ref(0);
+                const currentChannelName = ref('');
+                const splashHidden = ref(false);
+
+                const showChInfo = ref(false);
+                let chInfoTimer = null;
+
+                const volume = ref(1.0);
+                const showVol = ref(false);
+                let volTimer = null;
+
+                const showSchedule = ref(false);
+                const schedule = ref([]);
+
+                // 播放就绪标志，遮罩点击后才允许真正播放
+                let unlocked = false;
+                // 遮罩点击前收到的待播指令，点击后立即执行
+                let pendingPlay = null;
+
+                // ---- 工具 ----
+
+                const flashChInfo = (name) => {
+                    currentChannelName.value = name;
+                    showChInfo.value = true;
+                    clearTimeout(chInfoTimer);
+                    chInfoTimer = setTimeout(() => showChInfo.value = false, 3000);
+                };
+
+                const changeVolume = (delta) => {
+                    const v = Math.min(1, Math.max(0, volume.value + delta));
+                    volume.value = v;
+                    videoEl.value.volume = v;
+                    showVol.value = true;
+                    clearTimeout(volTimer);
+                    volTimer = setTimeout(() => showVol.value = false, 2000);
+                };
+
+                const toggleSchedule = async () => {
+                    if (showSchedule.value) { showSchedule.value = false; return; }
+                    const ch = channels.value[currentChIdx.value];
+                    const res = await fetch(`/api/schedule/${ch.id}`);
+                    schedule.value = await res.json();
+                    showSchedule.value = true;
+                };
+
+                // ---- 播放逻辑 ----
+
+                const loadVideo = (chId, fileIdx, offset) => {
+                    const video = videoEl.value;
+                    video.src = `/api/video/${chId}/${fileIdx}`;
+                    video.load();
+                    video.oncanplay = () => {
+                        video.currentTime = offset;
+                        video.play();
+                        video.oncanplay = null;
+                    };
+                };
+
+                const playChannel = async (chIdx) => {
+                    currentChIdx.value = chIdx;
+                    const ch = channels.value[chIdx];
+                    flashChInfo(ch.name);
+                    showSchedule.value = false;
+
+                    const res = await fetch(`/api/position/${ch.id}`);
+                    const pos = await res.json();
+                    currentFileIdx.value = pos.fileIndex;
+
+                    if (!unlocked) {
+                        // 还没解锁，先记住待播参数，等用户点击后执行
+                        pendingPlay = { chId: ch.id, fileIdx: pos.fileIndex, offset: pos.offset };
+                        return;
+                    }
+                    loadVideo(ch.id, pos.fileIndex, pos.offset);
+                };
+
+                const onEnded = () => {
+                    const ch = channels.value[currentChIdx.value];
+                    const next = (currentFileIdx.value + 1) % ch.fileCount;
+                    currentFileIdx.value = next;
+                    loadVideo(ch.id, next, 0);
+                };
+
+                // ---- 遮罩点击：在用户手势的同步调用栈里解锁 ----
+
+                const onSplashClick = () => {
+                    unlocked = true;
+                    splashHidden.value = true;
+
+                    if (pendingPlay) {
+                        loadVideo(pendingPlay.chId, pendingPlay.fileIdx, pendingPlay.offset);
+                        pendingPlay = null;
+                    } else if (channels.value.length > 0) {
+                        playChannel(currentChIdx.value);
+                    }
+                };
+
+                // ---- WebSocket ----
+
+                const initWS = () => {
+                    const ws = new WebSocket(`ws://${location.host}/api/ws`);
+                    ws.onmessage = (e) => {
+                        const total = channels.value.length;
+                        if (total === 0) return;
+                        const cmd = e.data;
+                        if (cmd.startsWith('SWITCH:')) {
+                            playChannel(parseInt(cmd.split(':')[1]));
+                        } else if (cmd === 'VOL_UP') {
+                            changeVolume(0.1);
+                        } else if (cmd === 'VOL_DOWN') {
+                            changeVolume(-0.1);
+                        } else if (cmd === 'TOGGLE_INFO') {
+                            toggleSchedule();
+                        }
+                    };
+                    ws.onclose = () => setTimeout(initWS, 2000);
+                };
+
+                onMounted(async () => {
+                    const res = await fetch('/api/channels');
+                    channels.value = await res.json();
+                    initWS();
+                });
+
+                return {
+                    videoEl, currentChannelName, splashHidden, onSplashClick,
+                    showChInfo, volume, showVol, showSchedule, schedule, onEnded
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
