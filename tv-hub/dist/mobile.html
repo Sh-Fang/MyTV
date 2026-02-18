@@ -7,27 +7,17 @@
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <style>
         * { box-sizing: border-box; }
-        body, html {
-            margin: 0; padding: 0;
-            width: 100%; height: 100%;
-            background: #000; overflow: hidden;
-        }
-        #app { width: 100%; height: 100%; position: relative; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+        #app { width: 100%; height: 100%; position: relative; background: #000; }
 
-        video {
-            position: absolute; top: 0; left: 0;
-            width: 100%; height: 100%;
-            object-fit: contain;
-        }
+        video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; }
 
         /* 启动遮罩 */
         .splash {
-            position: absolute; inset: 0;
-            background: #000;
+            position: absolute; inset: 0; background: #000;
             display: flex; flex-direction: column;
             justify-content: center; align-items: center;
-            gap: 20px; z-index: 100;
-            transition: opacity 0.4s;
+            gap: 20px; z-index: 100; transition: opacity 0.4s;
         }
         .splash.hide { opacity: 0; pointer-events: none; }
         .splash-title { color: #fff; font-family: sans-serif; font-size: 1.4rem; letter-spacing: 0.1em; }
@@ -40,13 +30,25 @@
         }
         .splash-btn svg { width: 32px; height: 32px; fill: #fff; margin-left: 4px; }
 
+        /* 全屏/退出全屏按钮 */
+        .fs-btn {
+            position: absolute; bottom: 16px; right: 16px;
+            width: 44px; height: 44px; border-radius: 8px;
+            background: rgba(0,0,0,0.5);
+            display: flex; justify-content: center; align-items: center;
+            cursor: pointer; z-index: 10;
+            -webkit-tap-highlight-color: transparent;
+            transition: opacity 0.3s;
+        }
+        .fs-btn svg { width: 22px; height: 22px; fill: #fff; }
+
         /* 频道提示 */
         .ch-info {
             position: absolute; top: 16px; right: 16px;
             background: rgba(0,0,0,0.6); color: #fff;
             padding: 8px 16px; border-radius: 4px;
             font-family: sans-serif; font-size: 1rem;
-            transition: opacity 0.5s; pointer-events: none;
+            transition: opacity 0.5s; pointer-events: none; z-index: 10;
         }
 
         /* 音量条 */
@@ -56,40 +58,55 @@
             display: flex; align-items: center; gap: 10px;
             background: rgba(0,0,0,0.65); padding: 8px 18px;
             border-radius: 30px; transition: opacity 0.5s; pointer-events: none;
-            white-space: nowrap;
+            white-space: nowrap; z-index: 10;
         }
         .vol-label { color: #fff; font-family: sans-serif; font-size: 0.9rem; }
         .vol-track { width: 140px; height: 5px; background: rgba(255,255,255,0.25); border-radius: 3px; overflow: hidden; }
         .vol-fill { height: 100%; background: #fff; border-radius: 3px; transition: width 0.1s; }
 
-        /* 节目单 */
+        /* 节目单：全屏从右侧弹出，非全屏从底部弹出 */
         .schedule-panel {
-            position: absolute; bottom: 0; left: 0; right: 0;
+            position: absolute;
             background: rgba(0,0,0,0.85);
-            padding: 20px 24px 28px;
             font-family: sans-serif;
             transition: opacity 0.3s, transform 0.3s;
+            z-index: 10; overflow-y: auto;
         }
-        .schedule-panel.hidden { opacity: 0; transform: translateY(20px); pointer-events: none; }
-        .sch-channel { color: #aaa; font-size: 0.8rem; margin-bottom: 12px; letter-spacing: 0.05em; }
-        .sch-list { display: flex; flex-direction: column; gap: 10px; }
-        .sch-item { display: flex; align-items: center; gap: 12px; }
-        .sch-time { color: #aaa; font-size: 0.85rem; width: 100px; flex-shrink: 0; }
-        .sch-title { color: #fff; font-size: 0.95rem; }
+        /* 右侧弹出（全屏） */
+        .schedule-panel.from-right {
+            top: 0; right: 0; bottom: 0; width: 320px;
+            padding: 32px 24px;
+        }
+        .schedule-panel.from-right.hidden { opacity: 0; transform: translateX(100%); pointer-events: none; }
+        /* 底部弹出（非全屏） */
+        .schedule-panel.from-bottom {
+            bottom: 0; left: 0; right: 0;
+            padding: 20px 24px 28px;
+        }
+        .schedule-panel.from-bottom.hidden { opacity: 0; transform: translateY(100%); pointer-events: none; }
+        .sch-channel { color: #aaa; font-size: 0.8rem; margin-bottom: 20px; letter-spacing: 0.05em; }
+        .sch-list { display: flex; flex-direction: column; gap: 14px; }
+        .sch-item { display: flex; align-items: flex-start; gap: 12px; }
+        .sch-time { color: #aaa; font-size: 0.85rem; width: 100px; flex-shrink: 0; padding-top: 2px; }
+        .sch-title { color: #fff; font-size: 0.95rem; line-height: 1.4; }
         .sch-item.current .sch-time { color: #fff; }
         .sch-item.current .sch-title { color: #4af; font-weight: bold; }
-        .sch-item.current::before { content: '▶'; color: #4af; font-size: 0.75rem; flex-shrink: 0; }
+        .sch-item.current::before { content: '▶'; color: #4af; font-size: 0.75rem; flex-shrink: 0; padding-top: 3px; }
         .sch-item:not(.current)::before { content: ''; width: 0.75rem; flex-shrink: 0; }
     </style>
 </head>
 <body>
     <div id="app">
-        <video ref="videoEl" playsinline controls @ended="onEnded"></video>
+        <video ref="videoEl" playsinline @ended="onEnded"></video>
+
+        <!-- 全屏/退出全屏按钮 -->
+        <div class="fs-btn" @click="toggleFullscreen">
+            <svg v-if="!isFullscreen" viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+            <svg v-else viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>
+        </div>
 
         <!-- 频道提示 -->
-        <div class="ch-info" :style="{ opacity: showChInfo ? 1 : 0 }">
-            {{ currentChannelName }}
-        </div>
+        <div class="ch-info" :style="{ opacity: showChInfo ? 1 : 0 }">{{ currentChannelName }}</div>
 
         <!-- 音量条 -->
         <div class="vol-bar" :style="{ opacity: showVol ? 1 : 0 }">
@@ -101,7 +118,7 @@
         </div>
 
         <!-- 节目单 -->
-        <div class="schedule-panel" :class="{ hidden: !showSchedule }">
+        <div class="schedule-panel" :class="[isFullscreen ? 'from-right' : 'from-bottom', { hidden: !showSchedule }]">
             <div class="sch-channel">{{ currentChannelName }}</div>
             <div class="sch-list">
                 <div v-for="item in schedule" :key="item.title + item.startsAt"
@@ -112,7 +129,7 @@
             </div>
         </div>
 
-        <!-- 启动遮罩，最后渲染在最上层 -->
+        <!-- 启动遮罩 -->
         <div class="splash" :class="{ hide: splashHidden }" @click="onSplashClick">
             <div class="splash-title">点击开始</div>
             <div class="splash-btn">
@@ -122,7 +139,7 @@
     </div>
 
     <script>
-        const { createApp, ref, onMounted } = Vue;
+        const { createApp, ref, onMounted, onUnmounted } = Vue;
 
         createApp({
             setup() {
@@ -132,6 +149,7 @@
                 const currentFileIdx = ref(0);
                 const currentChannelName = ref('');
                 const splashHidden = ref(false);
+                const isFullscreen = ref(false);
 
                 const showChInfo = ref(false);
                 let chInfoTimer = null;
@@ -143,10 +161,28 @@
                 const showSchedule = ref(false);
                 const schedule = ref([]);
 
-                // 播放就绪标志，遮罩点击后才允许真正播放
                 let unlocked = false;
-                // 遮罩点击前收到的待播指令，点击后立即执行
                 let pendingPlay = null;
+
+                // ---- 全屏 ----
+
+                const toggleFullscreen = () => {
+                    if (isFullscreen.value) {
+                        const exit = document.exitFullscreen || document.webkitExitFullscreen;
+                        if (exit) exit.call(document).catch(() => {});
+                    } else {
+                        const el = document.documentElement;
+                        const req = el.requestFullscreen || el.webkitRequestFullscreen;
+                        if (req) req.call(el).catch(() => {});
+                    }
+                };
+
+                const onFullscreenChange = () => {
+                    isFullscreen.value = !!(
+                        document.fullscreenElement ||
+                        document.webkitFullscreenElement
+                    );
+                };
 
                 // ---- 工具 ----
 
@@ -198,7 +234,6 @@
                     currentFileIdx.value = pos.fileIndex;
 
                     if (!unlocked) {
-                        // 还没解锁，先记住待播参数，等用户点击后执行
                         pendingPlay = { chId: ch.id, fileIdx: pos.fileIndex, offset: pos.offset };
                         return;
                     }
@@ -212,12 +247,11 @@
                     loadVideo(ch.id, next, 0);
                 };
 
-                // ---- 遮罩点击：在用户手势的同步调用栈里解锁 ----
+                // ---- 遮罩点击 ----
 
                 const onSplashClick = () => {
                     unlocked = true;
                     splashHidden.value = true;
-
                     if (pendingPlay) {
                         loadVideo(pendingPlay.chId, pendingPlay.fileIdx, pendingPlay.offset);
                         pendingPlay = null;
@@ -248,13 +282,21 @@
                 };
 
                 onMounted(async () => {
+                    document.addEventListener('fullscreenchange', onFullscreenChange);
+                    document.addEventListener('webkitfullscreenchange', onFullscreenChange);
                     const res = await fetch('/api/channels');
                     channels.value = await res.json();
                     initWS();
                 });
 
+                onUnmounted(() => {
+                    document.removeEventListener('fullscreenchange', onFullscreenChange);
+                    document.removeEventListener('webkitfullscreenchange', onFullscreenChange);
+                });
+
                 return {
                     videoEl, currentChannelName, splashHidden, onSplashClick,
+                    isFullscreen, toggleFullscreen,
                     showChInfo, volume, showVol, showSchedule, schedule, onEnded
                 };
             }
