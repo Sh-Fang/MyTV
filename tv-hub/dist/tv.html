@@ -9,21 +9,78 @@
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
         #app { width: 100%; height: 100%; position: relative; }
         video { width: 100%; height: 100%; object-fit: contain; }
-        .info-overlay {
+
+        /* 频道切换提示 */
+        .ch-info {
             position: absolute; top: 20px; right: 20px;
             background: rgba(0,0,0,0.6); color: #fff;
             padding: 10px 20px; border-radius: 5px;
             font-family: sans-serif; font-size: 1.2rem;
-            transition: opacity 0.5s;
-            pointer-events: none;
+            transition: opacity 0.5s; pointer-events: none;
         }
+
+        /* 音量条 */
+        .vol-bar {
+            position: absolute; bottom: 60px; left: 50%;
+            transform: translateX(-50%);
+            display: flex; align-items: center; gap: 12px;
+            background: rgba(0,0,0,0.65); padding: 10px 20px;
+            border-radius: 30px; transition: opacity 0.5s; pointer-events: none;
+        }
+        .vol-label { color: #fff; font-family: sans-serif; font-size: 1rem; white-space: nowrap; }
+        .vol-track { width: 180px; height: 6px; background: rgba(255,255,255,0.25); border-radius: 3px; overflow: hidden; }
+        .vol-fill { height: 100%; background: #fff; border-radius: 3px; transition: width 0.1s; }
+
+        /* 节目单面板 */
+        .schedule-panel {
+            position: absolute; bottom: 0; left: 0; right: 0;
+            background: rgba(0,0,0,0.82);
+            padding: 24px 40px 32px;
+            font-family: sans-serif;
+            transition: opacity 0.3s, transform 0.3s;
+        }
+        .schedule-panel.hidden { opacity: 0; transform: translateY(20px); pointer-events: none; }
+        .sch-channel { color: #aaa; font-size: 0.9rem; margin-bottom: 16px; letter-spacing: 0.05em; }
+        .sch-list { display: flex; flex-direction: column; gap: 10px; }
+        .sch-item { display: flex; align-items: center; gap: 16px; }
+        .sch-time { color: #aaa; font-size: 0.95rem; width: 110px; flex-shrink: 0; }
+        .sch-title { color: #fff; font-size: 1rem; }
+        .sch-item.current .sch-time { color: #fff; }
+        .sch-item.current .sch-title { color: #4af; font-weight: bold; font-size: 1.1rem; }
+        .sch-item.current::before {
+            content: '▶'; color: #4af; font-size: 0.8rem; flex-shrink: 0;
+        }
+        .sch-item:not(.current)::before { content: ''; width: 0.8rem; flex-shrink: 0; }
     </style>
 </head>
 <body>
     <div id="app">
         <video ref="videoEl" autoplay playsinline @ended="onEnded"></video>
-        <div class="info-overlay" :style="{ opacity: showInfo ? 1 : 0 }">
+
+        <!-- 频道切换提示 -->
+        <div class="ch-info" :style="{ opacity: showChInfo ? 1 : 0 }">
             {{ currentChannelName }}
+        </div>
+
+        <!-- 音量条 -->
+        <div class="vol-bar" :style="{ opacity: showVol ? 1 : 0 }">
+            <span class="vol-label">音量</span>
+            <div class="vol-track">
+                <div class="vol-fill" :style="{ width: (volume * 100) + '%' }"></div>
+            </div>
+            <span class="vol-label">{{ Math.round(volume * 100) }}</span>
+        </div>
+
+        <!-- 节目单面板 -->
+        <div class="schedule-panel" :class="{ hidden: !showSchedule }">
+            <div class="sch-channel">{{ currentChannelName }}</div>
+            <div class="sch-list">
+                <div v-for="item in schedule" :key="item.title + item.startsAt"
+                     class="sch-item" :class="{ current: item.current }">
+                    <span class="sch-time">{{ item.startsAt }} – {{ item.endsAt }}</span>
+                    <span class="sch-title">{{ item.title }}</span>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -36,34 +93,52 @@
                 const channels = ref([]);
                 const currentChIdx = ref(0);
                 const currentFileIdx = ref(0);
-                const showInfo = ref(false);
-                let infoTimer = null;
-
                 const currentChannelName = ref('加载中...');
 
-                // 显示频道名 3 秒
-                const flashInfo = (name) => {
+                // 频道切换提示
+                const showChInfo = ref(false);
+                let chInfoTimer = null;
+
+                // 音量
+                const volume = ref(1.0);
+                const showVol = ref(false);
+                let volTimer = null;
+
+                // 节目单
+                const showSchedule = ref(false);
+                const schedule = ref([]);
+
+                // ---- 工具函数 ----
+
+                const flashChInfo = (name) => {
                     currentChannelName.value = name;
-                    showInfo.value = true;
-                    clearTimeout(infoTimer);
-                    infoTimer = setTimeout(() => showInfo.value = false, 3000);
+                    showChInfo.value = true;
+                    clearTimeout(chInfoTimer);
+                    chInfoTimer = setTimeout(() => showChInfo.value = false, 3000);
                 };
 
-                // 播放指定频道，从后端获取当前时间轴位置
-                const playChannel = async (chIdx) => {
-                    currentChIdx.value = chIdx;
-                    const ch = channels.value[chIdx];
-                    flashInfo(ch.name);
-
-                    // 向后端查询当前应播到哪里
-                    const res = await fetch(`/api/position/${ch.id}`);
-                    const pos = await res.json(); // { fileIndex, offset }
-
-                    currentFileIdx.value = pos.fileIndex;
-                    loadVideo(ch.id, pos.fileIndex, pos.offset);
+                const changeVolume = (delta) => {
+                    const v = Math.min(1, Math.max(0, volume.value + delta));
+                    volume.value = v;
+                    videoEl.value.volume = v;
+                    showVol.value = true;
+                    clearTimeout(volTimer);
+                    volTimer = setTimeout(() => showVol.value = false, 2000);
                 };
 
-                // 加载并播放某个视频文件，从 offset 秒开始
+                const toggleSchedule = async () => {
+                    if (showSchedule.value) {
+                        showSchedule.value = false;
+                        return;
+                    }
+                    const ch = channels.value[currentChIdx.value];
+                    const res = await fetch(`/api/schedule/${ch.id}`);
+                    schedule.value = await res.json();
+                    showSchedule.value = true;
+                };
+
+                // ---- 播放逻辑 ----
+
                 const loadVideo = (chId, fileIdx, offset) => {
                     const video = videoEl.value;
                     video.src = `/api/video/${chId}/${fileIdx}`;
@@ -75,48 +150,57 @@
                     };
                 };
 
-                // 当前视频播完，自动播下一个
-                const onEnded = () => {
-                    const ch = channels.value[currentChIdx.value];
-                    // 后端会通过时间轴自动算出下一个，直接重新 position 即可
-                    // 但为了简单，这里直接取下一个文件（时间轴已经自然推进）
-                    const nextFile = (currentFileIdx.value + 1) % ch.videos.length;
-                    currentFileIdx.value = nextFile;
-                    loadVideo(ch.id, nextFile, 0);
+                const playChannel = async (chIdx) => {
+                    currentChIdx.value = chIdx;
+                    const ch = channels.value[chIdx];
+                    flashChInfo(ch.name);
+                    showSchedule.value = false;
+
+                    const res = await fetch(`/api/position/${ch.id}`);
+                    const pos = await res.json();
+                    currentFileIdx.value = pos.fileIndex;
+                    loadVideo(ch.id, pos.fileIndex, pos.offset);
                 };
 
-                // WebSocket 接收遥控指令
+                const onEnded = () => {
+                    const ch = channels.value[currentChIdx.value];
+                    const next = (currentFileIdx.value + 1) % ch.fileCount;
+                    currentFileIdx.value = next;
+                    loadVideo(ch.id, next, 0);
+                };
+
+                // ---- WebSocket ----
+
                 const initWS = () => {
                     const ws = new WebSocket(`ws://${location.host}/api/ws`);
                     ws.onmessage = (e) => {
                         const total = channels.value.length;
                         if (total === 0) return;
-                        if (e.data === 'NEXT') {
+                        const cmd = e.data;
+                        if (cmd === 'NEXT') {
                             playChannel((currentChIdx.value + 1) % total);
-                        } else if (e.data === 'PREV') {
+                        } else if (cmd === 'PREV') {
                             playChannel((currentChIdx.value - 1 + total) % total);
+                        } else if (cmd === 'VOL_UP') {
+                            changeVolume(0.1);
+                        } else if (cmd === 'VOL_DOWN') {
+                            changeVolume(-0.1);
+                        } else if (cmd === 'TOGGLE_INFO') {
+                            toggleSchedule();
                         }
                     };
                     ws.onclose = () => setTimeout(initWS, 2000);
                 };
 
                 onMounted(async () => {
-                    // 获取频道列表（含 id + name，后端还会返回 videos 数量供 onEnded 用）
                     const res = await fetch('/api/channels');
                     const list = await res.json();
-                    // 前端也需要知道每个频道有多少个文件，用于 onEnded 循环
-                    // 所以我们在 channels 里存一个 videos 数组（只存长度信息）
-                    // 通过 position 接口的 fileIndex 范围可以推断，但更简单的做法：
-                    // 后端 /api/channels 直接返回 fileCount
-                    channels.value = list.map(ch => ({
-                        ...ch,
-                        videos: { length: ch.fileCount }
-                    }));
+                    channels.value = list; // [{id, name, fileCount}]
                     if (list.length > 0) playChannel(0);
                     initWS();
                 });
 
-                return { videoEl, currentChannelName, showInfo, onEnded };
+                return { videoEl, currentChannelName, showChInfo, volume, showVol, showSchedule, schedule, onEnded };
             }
         }).mount('#app');
     </script>

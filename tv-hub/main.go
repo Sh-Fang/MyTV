@@ -211,6 +211,46 @@ func main() {
 			c.JSON(200, pos)
 		})
 
+		// 节目单：当前 + 后续3条
+		api.GET("/schedule/:id", func(c *gin.Context) {
+			id, _ := strconv.Atoi(c.Param("id"))
+			if id < 0 || id >= len(channels) {
+				c.JSON(404, gin.H{"error": "频道不存在"})
+				return
+			}
+			ch := channels[id]
+			pos := calcPosition(ch)
+
+			type Item struct {
+				Title    string `json:"title"`
+				StartsAt string `json:"startsAt"`
+				EndsAt   string `json:"endsAt"`
+				Current  bool   `json:"current"`
+			}
+
+			now := time.Now()
+			// 当前文件已播了 pos.Offset 秒，所以它的开始时间是 now - offset
+			startOfCurrent := now.Add(-time.Duration(pos.Offset) * time.Second)
+
+			var items []Item
+			t := startOfCurrent
+			for i := 0; i < 4; i++ {
+				idx := (pos.FileIndex + i) % len(ch.Videos)
+				v := ch.Videos[idx]
+				end := t.Add(time.Duration(v.Duration) * time.Second)
+				name := filepath.Base(v.Path)
+				name = name[:len(name)-len(filepath.Ext(name))] // 去掉扩展名
+				items = append(items, Item{
+					Title:    name,
+					StartsAt: t.Format("15:04"),
+					EndsAt:   end.Format("15:04"),
+					Current:  i == 0,
+				})
+				t = end
+			}
+			c.JSON(200, items)
+		})
+
 		// 流式传输视频文件
 		api.GET("/video/:id/:fileIndex", func(c *gin.Context) {
 			id, _ := strconv.Atoi(c.Param("id"))

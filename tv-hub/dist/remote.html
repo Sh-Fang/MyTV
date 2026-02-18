@@ -80,13 +80,13 @@
             <button class="pad-btn up" @click="sendCmd('NEXT')">▲</button>
             <button class="pad-btn down" @click="sendCmd('PREV')">▼</button>
 
-            <button class="pad-btn left" @click="logOnly('LEFT')">◀</button>
-            <button class="pad-btn right" @click="logOnly('RIGHT')">▶</button>
+            <button class="pad-btn left" @click="sendCmd('VOL_DOWN')">◀</button>
+            <button class="pad-btn right" @click="sendCmd('VOL_UP')">▶</button>
 
-            <button class="ok-btn" @click="logOnly('OK')">OK</button>
+            <button class="ok-btn" @click="sendCmd('TOGGLE_INFO')">OK</button>
         </div>
 
-        <div class="hint">上下键切换频道</div>
+        <div class="hint">上下键切换频道 · 左右键调音量 · OK键节目单</div>
     </div>
 
     <script>
@@ -106,13 +106,7 @@
                         .catch(err => console.error('网络错误:', err));
                 };
 
-                // 仅在本地控制台打印
-                const logOnly = (action) => {
-                    vibrate();
-                    console.log(`[本地日志] 用户按下了: ${action} (暂未发送指令)`);
-                };
-
-                return { sendCmd, logOnly };
+                return { sendCmd };
             }
         }).mount('#app');
     </script>
