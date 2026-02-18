@@ -55,7 +55,7 @@
 </head>
 <body>
     <div id="app">
-        <video ref="videoEl" autoplay playsinline muted @ended="onEnded"></video>
+        <video ref="videoEl" autoplay playsinline @ended="onEnded"></video>
 
         <!-- 频道切换提示 -->
         <div class="ch-info" :style="{ opacity: showChInfo ? 1 : 0 }">

@@ -1,1 +1,8 @@
-.vscode
+# Editor
+.vscode/
+
+# Go 编译产物
+tv-hub/tv-hub
+
+# Node / Electron
+tv-electron/node_modules/
