@@ -1,0 +1,9 @@
+<h1>电视端 (WebSocket)</h1>
+<p id="status">等待指令...</p>
+<script>
+    // 电视通过 WS 监听
+    const ws = new WebSocket('ws://' + location.host + '/ws');
+    ws.onmessage = (e) => {
+        document.getElementById('status').innerText = "收到遥控信号: " + e.data;
+    };
+</script>

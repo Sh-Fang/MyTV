@@ -1,0 +1,15 @@
+<h1>遥控器 (HTTP)</h1>
+<button onclick="send('PREV')">上一个台</button>
+<button onclick="send('NEXT')">下一个台</button>
+
+<script>
+    async function send(cmd) {
+        // 使用 fetch 发送简单的 HTTP 请求
+        try {
+            const res = await fetch(`/send?cmd=${cmd}`);
+            if (res.ok) console.log("指令发送成功");
+        } catch (e) {
+            console.error("发送失败", e);
+        }
+    }
+</script>
