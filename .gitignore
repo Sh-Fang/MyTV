@@ -6,3 +6,15 @@ tv-hub/tv-hub
 
 # Node / Electron
 tv-electron/node_modules/
+
+# Android
+*.iml
+.gradle/
+local.properties
+.idea/
+build/
+captures/
+*.apk
+*.aab
+*.keystore
+*.jks
