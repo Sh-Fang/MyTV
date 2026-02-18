@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Mytv"
+rootProject.name = "tv-android"
 include(":app")
