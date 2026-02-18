@@ -1,5 +1,6 @@
 package com.mytv.android
 
+import android.media.AudioManager
 import android.os.Bundle
 import android.view.View
 import android.view.WindowInsets
@@ -149,6 +150,12 @@ class MainActivity : ComponentActivity() {
                     if (text.startsWith("SWITCH:")) {
                         val idx = text.removePrefix("SWITCH:").toIntOrNull() ?: return@launch
                         playChannel(idx)
+                    } else if (text == "VOL_UP") {
+                        val am = getSystemService(AUDIO_SERVICE) as AudioManager
+                        am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI)
+                    } else if (text == "VOL_DOWN") {
+                        val am = getSystemService(AUDIO_SERVICE) as AudioManager
+                        am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI)
                     } else if (text == "TOGGLE_INFO") {
                         toggleSchedule()
                     }
