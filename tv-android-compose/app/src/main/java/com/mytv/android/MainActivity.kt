@@ -4,6 +4,7 @@ import android.media.AudioManager
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.os.Bundle
+import android.view.KeyEvent
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
@@ -171,6 +172,16 @@ class MainActivity : ComponentActivity() {
         playFile(ch.id, pos.fileIndex, pos.offset)
     }
 
+    private fun nextChannel() {
+        if (channels.isEmpty()) return
+        scope.launch { playChannel((currentChIdx + 1) % channels.size) }
+    }
+
+    private fun prevChannel() {
+        if (channels.isEmpty()) return
+        scope.launch { playChannel((currentChIdx - 1 + channels.size) % channels.size) }
+    }
+
     private fun playFile(chId: Int, fileIdx: Int, offset: Double) {
         val url = "${baseUrl}/api/video/$chId/$fileIdx"
         val item = MediaItem.fromUri(url)
@@ -236,6 +247,40 @@ class MainActivity : ComponentActivity() {
             val req = Request.Builder().url("$url$path").build()
             client.newCall(req).execute().use { it.body?.string() }
         } catch (e: Exception) { null }
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        return when (keyCode) {
+            // 频道切换：上键、频道+
+            KeyEvent.KEYCODE_DPAD_UP,
+            KeyEvent.KEYCODE_CHANNEL_UP -> {
+                nextChannel(); true
+            }
+            // 频道切换：下键、频道-
+            KeyEvent.KEYCODE_DPAD_DOWN,
+            KeyEvent.KEYCODE_CHANNEL_DOWN -> {
+                prevChannel(); true
+            }
+            // 音量
+            KeyEvent.KEYCODE_VOLUME_UP,
+            KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                val am = getSystemService(AUDIO_SERVICE) as AudioManager
+                am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI)
+                true
+            }
+            KeyEvent.KEYCODE_VOLUME_DOWN,
+            KeyEvent.KEYCODE_DPAD_LEFT -> {
+                val am = getSystemService(AUDIO_SERVICE) as AudioManager
+                am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI)
+                true
+            }
+            // OK / 确认 → 节目单
+            KeyEvent.KEYCODE_DPAD_CENTER,
+            KeyEvent.KEYCODE_ENTER -> {
+                scope.launch { toggleSchedule() }; true
+            }
+            else -> super.onKeyDown(keyCode, event)
+        }
     }
 
     override fun onDestroy() {
