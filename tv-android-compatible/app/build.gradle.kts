@@ -38,8 +38,8 @@ android {
 dependencies {
     implementation(libs.okhttp)
     implementation(libs.gson)
+    implementation(libs.coroutines.android)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
 }
