@@ -47,6 +47,8 @@ class MainActivity : Activity() {
     private lateinit var tvScheduleChannelName: TextView
     private lateinit var lvSchedule: ListView
     private lateinit var scheduleAdapter: ScheduleAdapter
+    private lateinit var noConnectionView: View
+    private lateinit var tvNoConnectionDetail: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -60,6 +62,9 @@ class MainActivity : Activity() {
 
         scheduleAdapter = ScheduleAdapter(this)
         lvSchedule.adapter = scheduleAdapter
+
+        noConnectionView = findViewById(R.id.noConnectionView)
+        tvNoConnectionDetail = findViewById(R.id.tvNoConnectionDetail)
 
         hideSystemUI()
 
@@ -94,10 +99,15 @@ class MainActivity : Activity() {
     }
 
     private suspend fun loadChannels() {
-        val body = get("/api/channels") ?: return
+        val body = get("/api/channels")
+        if (body == null) {
+            showNoConnection("无法连接到 $BASE_URL")
+            return
+        }
         val type = object : TypeToken<List<Channel>>() {}.type
         channels.clear()
         channels.addAll(gson.fromJson(body, type))
+        hideNoConnection()
     }
 
     private suspend fun playChannel(chIdx: Int) {
@@ -184,7 +194,10 @@ class MainActivity : Activity() {
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 scope.launch {
+                    showNoConnection("连接已断开，正在重试...")
                     delay(2000)
+                    // 重试时也重新拉取频道列表
+                    loadChannels()
                     connectWS()
                 }
             }
@@ -201,6 +214,15 @@ class MainActivity : Activity() {
         val type = object : TypeToken<List<ScheduleItem>>() {}.type
         val items: List<ScheduleItem> = gson.fromJson(body, type)
         showSchedule(ch.name, items)
+    }
+
+    private fun showNoConnection(detail: String) {
+        tvNoConnectionDetail.text = detail
+        noConnectionView.visibility = View.VISIBLE
+    }
+
+    private fun hideNoConnection() {
+        noConnectionView.visibility = View.GONE
     }
 
     private suspend fun get(path: String): String? = withContext(Dispatchers.IO) {

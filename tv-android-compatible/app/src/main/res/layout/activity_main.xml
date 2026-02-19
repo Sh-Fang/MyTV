@@ -27,7 +27,41 @@
         android:textSize="20sp"
         android:visibility="gone" />
 
-    <!-- 底部节目单面板 -->
+    <!-- 无连接提示层 -->
+    <LinearLayout
+        android:id="@+id/noConnectionView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_gravity="center"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:background="@color/black"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="📡"
+            android:textSize="48sp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="无法连接到服务器"
+            android:textColor="@color/white"
+            android:textSize="22sp" />
+
+        <TextView
+            android:id="@+id/tvNoConnectionDetail"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="正在重试..."
+            android:textColor="#FFAAAAAA"
+            android:textSize="15sp" />
+
+    </LinearLayout>
     <LinearLayout
         android:id="@+id/schedulePanel"
         android:layout_width="match_parent"
