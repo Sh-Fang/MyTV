@@ -9,6 +9,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,6 +33,7 @@ fun TvScreen(
     showChInfo: Boolean,
     showSchedule: Boolean,
     schedule: List<ScheduleItem>,
+    appState: MainActivity.AppState,
 ) {
     val currentChName = channels.getOrNull(currentChIdx)?.name ?: ""
 
@@ -40,7 +42,7 @@ fun TvScreen(
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // 播放器
+        // 播放器（始终存在，避免重建）
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
@@ -52,6 +54,17 @@ fun TvScreen(
             },
             update = { it.player = player }
         )
+
+        // Loading 遮罩：发现/加载阶段覆盖在播放器上
+        if (appState != MainActivity.AppState.PLAYING) {
+            LoadingOverlay(
+                message = when (appState) {
+                    MainActivity.AppState.DISCOVERING -> "正在搜索后端服务..."
+                    MainActivity.AppState.LOADING -> "正在加载频道..."
+                    else -> ""
+                }
+            )
+        }
 
         // 频道切换提示（右上角）
         AnimatedVisibility(
@@ -78,6 +91,32 @@ fun TvScreen(
             modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
         ) {
             SchedulePanel(channelName = currentChName, schedule = schedule)
+        }
+    }
+}
+
+@Composable
+fun LoadingOverlay(message: String) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(20.dp)
+        ) {
+            CircularProgressIndicator(
+                color = Color(0xFF44AAFF),
+                strokeWidth = 3.dp,
+                modifier = Modifier.size(48.dp)
+            )
+            Text(
+                text = message,
+                color = Color(0xFFAAAAAA),
+                fontSize = 16.sp
+            )
         }
     }
 }

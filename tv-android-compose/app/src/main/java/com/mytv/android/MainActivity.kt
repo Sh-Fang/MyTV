@@ -52,6 +52,8 @@ class MainActivity : ComponentActivity() {
     private var discoveryListener: NsdManager.DiscoveryListener? = null
 
     // UI state
+    enum class AppState { DISCOVERING, LOADING, PLAYING }
+    private var appState by mutableStateOf(AppState.DISCOVERING)
     private val channels = mutableStateListOf<Channel>()
     private var currentChIdx by mutableIntStateOf(0)
     private var currentFileIdx by mutableIntStateOf(0)
@@ -73,6 +75,7 @@ class MainActivity : ComponentActivity() {
                 showChInfo = showChInfo,
                 showSchedule = showSchedule,
                 schedule = schedule,
+                appState = appState,
             )
         }
 
@@ -124,21 +127,28 @@ class MainActivity : ComponentActivity() {
                         val host = si.host?.hostAddress ?: return
                         val port = si.port
                         scope.launch {
+                            if (baseUrl != null) return@launch  // 已连接，忽略
                             baseUrl = "http://$host:$port"
-                            stopDiscovery()
+                            appState = AppState.LOADING
                             loadChannels()
                             connectWS()
+                            appState = AppState.PLAYING
                         }
                     }
                 })
             }
 
             override fun onServiceLost(serviceInfo: NsdServiceInfo) {
-                // 后端消失，重新发现
                 if (baseUrl != null) {
                     baseUrl = null
                     channels.clear()
-                    discoverBackend()
+                    appState = AppState.DISCOVERING
+                    // 停掉当前扫描再重启，强制系统重新发现
+                    scope.launch {
+                        stopDiscovery()
+                        delay(1000)
+                        discoverBackend()
+                    }
                 }
             }
         }
@@ -223,8 +233,13 @@ class MainActivity : ComponentActivity() {
             }
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 scope.launch {
-                    delay(2000)
-                    connectWS()
+                    baseUrl = null
+                    channels.clear()
+                    appState = AppState.DISCOVERING
+                    // 停掉当前扫描再重启，强制系统重新发现
+                    stopDiscovery()
+                    delay(1000)
+                    discoverBackend()
                 }
             }
         })
