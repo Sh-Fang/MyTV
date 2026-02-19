@@ -13,6 +13,7 @@ import (
 	"github.com/abema/go-mp4"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/grandcat/zeroconf"
 )
 
 // ---- 数据结构 ----
@@ -279,6 +280,14 @@ func main() {
 	})
 
 	fmt.Println("TV-Hub 运行在 :8080")
+	// 注册 mDNS 服务，让局域网内的设备能自动发现
+	mdns, err := zeroconf.Register("mytv-hub", "_mytv._tcp", "local.", 8080, []string{"version=1"}, nil)
+	if err != nil {
+		fmt.Printf("mDNS 注册失败（不影响正常使用）: %v\n", err)
+	} else {
+		defer mdns.Shutdown()
+		fmt.Println("mDNS 已注册: mytv-hub._mytv._tcp.local.")
+	}
 	r.Run(":8080")
 }
 

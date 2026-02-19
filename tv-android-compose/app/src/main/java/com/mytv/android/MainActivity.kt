@@ -1,6 +1,8 @@
 package com.mytv.android
 
 import android.media.AudioManager
+import android.net.nsd.NsdManager
+import android.net.nsd.NsdServiceInfo
 import android.os.Bundle
 import android.view.View
 import android.view.WindowInsets
@@ -31,8 +33,6 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 
-const val BASE_URL = "http://192.168.2.29:8080"
-
 data class Channel(val id: Int, val name: String, val fileCount: Int)
 data class Position(val fileIndex: Int, val offset: Double)
 data class ScheduleItem(val title: String, val startsAt: String, val endsAt: String, val current: Boolean)
@@ -44,6 +44,11 @@ class MainActivity : ComponentActivity() {
     private val gson = Gson()
     private var wsCall: WebSocket? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+
+    // 动态发现的后端地址
+    private var baseUrl: String? = null
+    private var nsdManager: NsdManager? = null
+    private var discoveryListener: NsdManager.DiscoveryListener? = null
 
     // UI state
     private val channels = mutableStateListOf<Channel>()
@@ -86,7 +91,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // 视频播完自动播下一个
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_ENDED) {
@@ -97,10 +101,54 @@ class MainActivity : ComponentActivity() {
             }
         })
 
-        scope.launch {
-            loadChannels()
-            connectWS()
+        discoverBackend()
+    }
+
+    // mDNS 发现后端
+    private fun discoverBackend() {
+        nsdManager = getSystemService(NSD_SERVICE) as NsdManager
+
+        discoveryListener = object : NsdManager.DiscoveryListener {
+            override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
+                scope.launch { delay(3000); discoverBackend() }
+            }
+            override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {}
+            override fun onDiscoveryStarted(serviceType: String) {}
+            override fun onDiscoveryStopped(serviceType: String) {}
+
+            override fun onServiceFound(serviceInfo: NsdServiceInfo) {
+                nsdManager?.resolveService(serviceInfo, object : NsdManager.ResolveListener {
+                    override fun onResolveFailed(si: NsdServiceInfo, errorCode: Int) {}
+                    override fun onServiceResolved(si: NsdServiceInfo) {
+                        val host = si.host?.hostAddress ?: return
+                        val port = si.port
+                        scope.launch {
+                            baseUrl = "http://$host:$port"
+                            stopDiscovery()
+                            loadChannels()
+                            connectWS()
+                        }
+                    }
+                })
+            }
+
+            override fun onServiceLost(serviceInfo: NsdServiceInfo) {
+                // 后端消失，重新发现
+                if (baseUrl != null) {
+                    baseUrl = null
+                    channels.clear()
+                    discoverBackend()
+                }
+            }
         }
+
+        nsdManager?.discoverServices("_mytv._tcp", NsdManager.PROTOCOL_DNS_SD, discoveryListener)
+    }
+
+    private fun stopDiscovery() {
+        try {
+            discoveryListener?.let { nsdManager?.stopServiceDiscovery(it) }
+        } catch (_: Exception) {}
     }
 
     private suspend fun loadChannels() {
@@ -124,7 +172,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun playFile(chId: Int, fileIdx: Int, offset: Double) {
-        val url = "$BASE_URL/api/video/$chId/$fileIdx"
+        val url = "${baseUrl}/api/video/$chId/$fileIdx"
         val item = MediaItem.fromUri(url)
         player.setMediaItem(item)
         player.prepare()
@@ -142,7 +190,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun connectWS() {
-        val request = Request.Builder().url("ws://10.0.2.2:8080/api/ws").build()
+        val wsUrl = baseUrl?.replace("http://", "ws://") ?: return
+        val request = Request.Builder().url("$wsUrl/api/ws").build()
         wsCall = client.newWebSocket(request, object : WebSocketListener() {
             override fun onMessage(webSocket: WebSocket, text: String) {
                 scope.launch {
@@ -182,14 +231,16 @@ class MainActivity : ComponentActivity() {
     }
 
     private suspend fun get(path: String): String? = withContext(Dispatchers.IO) {
+        val url = baseUrl ?: return@withContext null
         try {
-            val req = Request.Builder().url("$BASE_URL$path").build()
+            val req = Request.Builder().url("$url$path").build()
             client.newCall(req).execute().use { it.body?.string() }
         } catch (e: Exception) { null }
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        stopDiscovery()
         wsCall?.cancel()
         player.release()
         scope.cancel()
