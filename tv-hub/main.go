@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"net"
 	"net/http"
@@ -36,7 +37,7 @@ type Channel struct {
 var channels []Channel
 var currentChIndex int // 后端维护当前频道，所有 tv 端保持一致
 
-const videoDir = "/home/oasis/视频/mytv/gpu_processed"
+const defaultVideoDir = "/home/oasis/视频/mytv/gpu_processed"
 
 // ---- MP4 时长解析 ----
 
@@ -171,8 +172,16 @@ var hub = Hub{tvConns: make(map[*websocket.Conn]bool)}
 // ---- main ----
 
 func main() {
+	pathFlag := flag.String("path", "", "视频目录路径（默认使用内置路径）")
+	flag.Parse()
+
+	videoDir := defaultVideoDir
+	if *pathFlag != "" {
+		videoDir = *pathFlag
+	}
+
 	var err error
-	fmt.Println("扫描视频目录...")
+	fmt.Printf("扫描视频目录: %s\n", videoDir)
 	channels, err = scanChannels(videoDir)
 	if err != nil {
 		fmt.Printf("扫描失败: %v\n", err)
