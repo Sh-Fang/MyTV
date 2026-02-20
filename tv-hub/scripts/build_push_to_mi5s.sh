@@ -4,7 +4,7 @@
 PHONE_IP="192.168.0.103"  # 修改为你的手机 IP
 PHONE_PORT="8022"       # Termux 默认端口
 TARGET_DIR="/data/data/com.termux/files/home"
-APP_NAME="mytv"
+APP_NAME="tv-hub"
 
 echo "开始交叉编译 for Android ARM64..."
 # CGO_ENABLED=0 确保静态链接，避免缺少安卓系统库的问题
