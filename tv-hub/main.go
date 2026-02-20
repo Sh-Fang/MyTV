@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -280,6 +281,7 @@ func main() {
 	})
 
 	fmt.Println("TV-Hub 运行在 :8080")
+
 	// 注册 mDNS 服务，让局域网内的设备能自动发现
 	mdns, err := zeroconf.Register("mytv-hub", "_mytv._tcp", "local.", 8080, []string{"version=1"}, nil)
 	if err != nil {
@@ -288,6 +290,23 @@ func main() {
 		defer mdns.Shutdown()
 		fmt.Println("mDNS 已注册: mytv-hub._mytv._tcp.local.")
 	}
+
+	// UDP 广播，让局域网设备自动发现
+	go func() {
+		addr, _ := net.ResolveUDPAddr("udp", "255.255.255.255:5354")
+		conn, err := net.DialUDP("udp", nil, addr)
+		if err != nil {
+			fmt.Printf("UDP 广播启动失败: %v\n", err)
+			return
+		}
+		defer conn.Close()
+		msg := []byte("mytv:8080")
+		for {
+			conn.Write(msg)
+			time.Sleep(2 * time.Second)
+		}
+	}()
+
 	r.Run(":8080")
 }
 

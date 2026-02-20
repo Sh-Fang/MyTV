@@ -3,6 +3,7 @@ package com.mytv.android
 import android.media.AudioManager
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
+import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.View
@@ -33,6 +34,8 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import java.net.DatagramPacket
+import java.net.DatagramSocket
 
 data class Channel(val id: Int, val name: String, val fileCount: Int)
 data class Position(val fileIndex: Int, val offset: Double)
@@ -50,6 +53,8 @@ class MainActivity : ComponentActivity() {
     private var baseUrl: String? = null
     private var nsdManager: NsdManager? = null
     private var discoveryListener: NsdManager.DiscoveryListener? = null
+    private var multicastLock: WifiManager.MulticastLock? = null
+    private var udpSocket: DatagramSocket? = null
 
     // UI state
     enum class AppState { DISCOVERING, LOADING, PLAYING }
@@ -106,10 +111,20 @@ class MainActivity : ComponentActivity() {
         })
 
         discoverBackend()
+        listenUdpBroadcast()
     }
 
     // mDNS 发现后端
     private fun discoverBackend() {
+        // 持有 MulticastLock，防止系统丢弃多播包
+        val wifi = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
+        if (multicastLock == null) {
+            multicastLock = wifi.createMulticastLock("mytv_mdns").also {
+                it.setReferenceCounted(false)
+                it.acquire()
+            }
+        }
+
         nsdManager = getSystemService(NSD_SERVICE) as NsdManager
 
         discoveryListener = object : NsdManager.DiscoveryListener {
@@ -125,14 +140,11 @@ class MainActivity : ComponentActivity() {
                     override fun onResolveFailed(si: NsdServiceInfo, errorCode: Int) {}
                     override fun onServiceResolved(si: NsdServiceInfo) {
                         val host = si.host?.hostAddress ?: return
+                        // 过滤 IPv6 地址，只用 IPv4
+                        if (host.contains(':')) return
                         val port = si.port
                         scope.launch {
-                            if (baseUrl != null) return@launch  // 已连接，忽略
-                            baseUrl = "http://$host:$port"
-                            appState = AppState.LOADING
-                            loadChannels()
-                            connectWS()
-                            appState = AppState.PLAYING
+                            connectToBackend(host, port)
                         }
                     }
                 })
@@ -160,6 +172,40 @@ class MainActivity : ComponentActivity() {
         try {
             discoveryListener?.let { nsdManager?.stopServiceDiscovery(it) }
         } catch (_: Exception) {}
+    }
+
+    // UDP 广播监听，作为 mDNS 的可靠兜底
+    private fun listenUdpBroadcast() {
+        scope.launch(Dispatchers.IO) {
+            try {
+                val socket = DatagramSocket(5354).also { udpSocket = it }
+                val buf = ByteArray(64)
+                val packet = DatagramPacket(buf, buf.size)
+                while (!socket.isClosed) {
+                    socket.receive(packet)
+                    val msg = String(packet.data, 0, packet.length).trim()
+                    // 格式: "mytv:8080"
+                    if (msg.startsWith("mytv:")) {
+                        val port = msg.removePrefix("mytv:").toIntOrNull() ?: continue
+                        val host = packet.address.hostAddress ?: continue
+                        if (host.contains(':')) continue // 跳过 IPv6
+                        withContext(Dispatchers.Main) {
+                            connectToBackend(host, port)
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    // 统一连接入口，mDNS 和 UDP 都走这里
+    private suspend fun connectToBackend(host: String, port: Int) {
+        if (baseUrl != null) return
+        baseUrl = "http://$host:$port"
+        appState = AppState.LOADING
+        loadChannels()
+        connectWS()
+        appState = AppState.PLAYING
     }
 
     private suspend fun loadChannels() {
@@ -301,6 +347,8 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         stopDiscovery()
+        multicastLock?.release()
+        udpSocket?.close()
         wsCall?.cancel()
         player.release()
         scope.cancel()
