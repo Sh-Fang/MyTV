@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/abema/go-mp4"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/grandcat/zeroconf"
@@ -41,6 +40,7 @@ const defaultVideoDir = "/home/oasis/视频/mytv/gpu_processed"
 
 // ---- MP4 时长解析 ----
 
+// 只读 moov/mvhd，不遍历整个文件，避免大文件卡死
 func getMp4Duration(path string) (float64, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -48,25 +48,65 @@ func getMp4Duration(path string) (float64, error) {
 	}
 	defer f.Close()
 
-	var duration float64
-	_, err = mp4.ReadBoxStructure(f, func(h *mp4.ReadHandle) (interface{}, error) {
-		if h.BoxInfo.Type == mp4.BoxTypeMvhd() {
-			box, _, err := h.ReadPayload()
-			if err != nil {
-				return nil, err
+	// 读取前 10MB，moov box 通常在文件头
+	buf := make([]byte, 10*1024*1024)
+	n, err := f.Read(buf)
+	if err != nil && n == 0 {
+		return 0, err
+	}
+	buf = buf[:n]
+
+	dur, ok := findMvhd(buf)
+	if !ok {
+		return 0, fmt.Errorf("未找到 mvhd box")
+	}
+	return dur, nil
+}
+
+// 在字节流中递归查找 mvhd box 并解析时长
+func findMvhd(data []byte) (float64, bool) {
+	for i := 0; i+8 <= len(data); {
+		size := int(data[i])<<24 | int(data[i+1])<<16 | int(data[i+2])<<8 | int(data[i+3])
+		if size < 8 || i+size > len(data) {
+			break
+		}
+		boxType := string(data[i+4 : i+8])
+		payload := data[i+8 : i+size]
+
+		switch boxType {
+		case "mvhd":
+			// version 0: timescale@12, duration@16 (uint32)
+			// version 1: timescale@20, duration@24 (uint64)
+			if len(payload) < 4 {
+				return 0, false
 			}
-			switch b := box.(type) {
-			case *mp4.Mvhd:
-				if b.GetVersion() == 0 {
-					duration = float64(b.DurationV0) / float64(b.Timescale)
-				} else {
-					duration = float64(b.DurationV1) / float64(b.Timescale)
+			version := payload[0]
+			if version == 0 && len(payload) >= 20 {
+				timescale := uint32(payload[12])<<24 | uint32(payload[13])<<16 | uint32(payload[14])<<8 | uint32(payload[15])
+				duration := uint32(payload[16])<<24 | uint32(payload[17])<<16 | uint32(payload[18])<<8 | uint32(payload[19])
+				if timescale == 0 {
+					return 0, false
 				}
+				return float64(duration) / float64(timescale), true
+			} else if version == 1 && len(payload) >= 28 {
+				timescale := uint32(payload[20])<<24 | uint32(payload[21])<<16 | uint32(payload[22])<<8 | uint32(payload[23])
+				duration := uint64(payload[24])<<56 | uint64(payload[25])<<48 | uint64(payload[26])<<40 | uint64(payload[27])<<32 |
+					uint64(payload[28])<<24 | uint64(payload[29])<<16 | uint64(payload[30])<<8 | uint64(payload[31])
+				if timescale == 0 {
+					return 0, false
+				}
+				return float64(duration) / float64(timescale), true
+			}
+			return 0, false
+		case "moov", "trak", "mdia", "minf", "stbl":
+			// 递归进容器 box
+			if dur, ok := findMvhd(payload); ok {
+				return dur, true
 			}
 		}
-		return h.Expand()
-	})
-	return duration, err
+		i += size
+	}
+	return 0, false
 }
 
 // ---- 启动时扫描目录 ----
